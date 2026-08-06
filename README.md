@@ -1,6 +1,9 @@
 # WorkflowManager
 
-基于 LangGraph 的 Workflow 提取与管理引擎。
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![LangGraph](https://img.shields.io/badge/langgraph-%E2%9C%93-green)](https://langchain-ai.github.io/langgraph/)
+
+[English](./docs/README_EN.md) · **简体中文**
 
 **核心思想：`context = workflow`**
 
@@ -8,7 +11,14 @@
 
 ## 与 Skill 的区别
 
-Skill 是 Agent 自己总结的抽象描述，而 Workflow 是**真实的、可执行的步骤序列**——Agent 看到"上次解决这个问题用了这些步骤"，可以直接复用。
+| 维度 | 传统 Skill | Workflow |
+| ------ | ----------- | ---------- |
+| **性质** | Agent 自己总结的抽象描述 | 真实的、可执行的步骤序列 |
+| **粒度** | 高层概括 | 每一步 tool/bash 调用 |
+| **参考价值** | 概念指导 | 直接可复用的模板 |
+| **示例** | "修复导入错误要检查路径" | `read_file → grep → edit_file → python` |
+
+Agent 看到 Workflow 就知道**具体该怎么做**，而不是一个模糊的方向。
 
 ## 安装
 
@@ -16,8 +26,8 @@ Skill 是 Agent 自己总结的抽象描述，而 Workflow 是**真实的、可�
 pip install -r requirements.txt
 ```
 
-依赖：`torch` `transformers` `faiss-cpu` `scikit-learn` `numpy` `langgraph` `langchain-core`
-模型：需本地放置 [moka-ai/m3e-base](https://huggingface.co/moka-ai/m3e-base)（768维中文嵌入）
+依赖：`torch` `transformers` `faiss-cpu` `scikit-learn` `numpy` `langgraph` `langchain-core`  
+模型：需本地放置 [moka-ai/m3e-base](https://huggingface.co/moka-ai/m3e-base)（768维中文嵌入）到 `models/` 目录
 
 ## 快速开始
 
@@ -28,7 +38,7 @@ python cli.py demo
 ## 核心概念
 
 | 概念 | 说明 |
-| ------ | ------ |
+| --- | --- |
 | **Workflow** | Agent 完成某项任务的有序 toolcall/bashcall 步骤序列（取代 Episode） |
 | **Step** | 一次工具调用或命令执行，Workflow 的最小组成单元 |
 | **RAW** | 任务完成后从 Checkpoints 提取的原始步骤序列 |
@@ -102,7 +112,8 @@ wfm = create_memory_manager()
 │       └── faiss_index.py         # FaissWorkflowIndex
 ├── tests/                         # 22 个测试
 ├── docs/
-│   └── RECALL.md                  # 完整设计文档
+│   ├── DESIGN.md                  # 完整设计文档
+│   └── README_EN.md               # English README
 └── requirements.txt
 ```
 
@@ -115,7 +126,7 @@ pytest tests/ -v   # 22 个测试
 ## 剪枝策略
 
 | 策略 | 判断依据 | 示例 |
-| ------ | --------- | ------ |
+| --- | --- | --- |
 | **结果被覆盖** | 步骤 A 的输出被步骤 B 完全覆盖/修正 | `edit_file` 后又 `edit_file` 改同一文件 |
 | **出错但无关** | 步骤执行失败，但后续通过其他方式解决了 | `pip install` 失败，`conda install` 成功 |
 | **探索性调用** | 明显的探索/调试行为 | `ls`、`cat`、`read_file` 读无关文件 |
