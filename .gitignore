@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.so
+
+# Environment
+.env
+venv/
+.venv/
+env/
+
+# Model files
+models/
+
+# Database & Index
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.index
+
+# IDE
+.vscode/
+.idea/
+.trae/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+.DS_Store?
+
+# Test cache
+.pytest_cache/
+.hypothesis/
+
+# Runtime
+*.pid
+*.lock
