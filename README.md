@@ -2,6 +2,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![LangGraph](https://img.shields.io/badge/langgraph-%E2%9C%93-green)](https://langchain-ai.github.io/langgraph/)
+[![License](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
 
 [English](./docs/README_EN.md) · **简体中文**
 
