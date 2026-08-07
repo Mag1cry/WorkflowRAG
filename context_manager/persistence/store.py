@@ -1,9 +1,61 @@
-"""SQLite Workflow + Step 元数据存储。"""
+"""Workflow + Step 元数据存储抽象基类与实现。"""
+
+from __future__ import annotations
 
 import datetime
 import sqlite3
+from abc import ABC, abstractmethod
 
-from .base import WorkflowStoreBase
+from ..models import Workflow, Step
+
+
+class WorkflowStoreBase(ABC):
+    """Workflow 元数据存储接口。"""
+
+    @abstractmethod
+    def create_workflow(self, workflow_id: str, name: str,
+                        description: str = "", source_thread_id: str = "",
+                        tags: str = "") -> None:
+        ...
+
+    @abstractmethod
+    def get_workflow(self, workflow_id: str) -> Workflow | None:
+        ...
+
+    @abstractmethod
+    def list_workflows(self, status: str | None = None) -> list[Workflow]:
+        ...
+
+    @abstractmethod
+    def update_status(self, workflow_id: str, status: str) -> None:
+        ...
+
+    @abstractmethod
+    def update_description(self, workflow_id: str, description: str) -> None:
+        ...
+
+    @abstractmethod
+    def delete_workflow(self, workflow_id: str) -> None:
+        ...
+
+    @abstractmethod
+    def add_step(self, step_id: str, workflow_id: str, step_index: int,
+                 type: str, name: str, arguments: str = "", result: str = "",
+                 status: str = "success", duration_ms: int = 0,
+                 error_message: str = "", timestamp: str = "") -> None:
+        ...
+
+    @abstractmethod
+    def get_steps(self, workflow_id: str) -> list[Step]:
+        ...
+
+    @abstractmethod
+    def update_step_pruned(self, step_id: str, is_pruned: bool) -> None:
+        ...
+
+    @abstractmethod
+    def close(self) -> None:
+        ...
 
 
 class SQLiteWorkflowStore(WorkflowStoreBase):
@@ -61,7 +113,7 @@ class SQLiteWorkflowStore(WorkflowStoreBase):
         )
         self._conn.commit()
 
-    def get_workflow(self, workflow_id: str) -> dict | None:
+    def get_workflow(self, workflow_id: str) -> Workflow | None:
         row = self._conn.execute(
             "SELECT workflow_id, name, description, status, source_thread_id, "
             "tags, created_at, updated_at FROM workflows WHERE workflow_id = ?",
@@ -69,9 +121,11 @@ class SQLiteWorkflowStore(WorkflowStoreBase):
         ).fetchone()
         if row is None:
             return None
-        return self._row_to_workflow(row)
+        wf = self._row_to_workflow(row)
+        wf.steps = self.get_steps(workflow_id)
+        return wf
 
-    def list_workflows(self, status: str | None = None) -> list[dict]:
+    def list_workflows(self, status: str | None = None) -> list[Workflow]:
         if status:
             rows = self._conn.execute(
                 "SELECT workflow_id, name, description, status, source_thread_id, "
@@ -121,14 +175,14 @@ class SQLiteWorkflowStore(WorkflowStoreBase):
         )
         self._conn.commit()
 
-    def get_steps(self, workflow_id: str) -> list[dict]:
+    def get_steps(self, workflow_id: str) -> list[Step]:
         rows = self._conn.execute(
             "SELECT step_id, workflow_id, step_index, type, name, arguments, result, "
             "status, duration_ms, error_message, is_pruned, timestamp "
             "FROM steps WHERE workflow_id = ? ORDER BY step_index",
             (workflow_id,),
         ).fetchall()
-        return [self._row_to_step(r) for r in rows]
+        return [Step.from_dict(self._row_to_step_dict(r)) for r in rows]
 
     def update_step_pruned(self, step_id: str, is_pruned: bool) -> None:
         self._conn.execute(
@@ -143,20 +197,20 @@ class SQLiteWorkflowStore(WorkflowStoreBase):
     # ── 内部 ────────────────────────────────────────
 
     @staticmethod
-    def _row_to_workflow(row: tuple) -> dict:
-        return {
-            "workflow_id": row[0],
-            "name": row[1],
-            "description": row[2],
-            "status": row[3],
-            "source_thread_id": row[4],
-            "tags": row[5],
-            "created_at": row[6],
-            "updated_at": row[7],
-        }
+    def _row_to_workflow(row: tuple) -> Workflow:
+        return Workflow(
+            workflow_id=row[0],
+            name=row[1],
+            description=row[2],
+            status=row[3],
+            source_thread_id=row[4],
+            tags=row[5],
+            created_at=row[6],
+            updated_at=row[7],
+        )
 
     @staticmethod
-    def _row_to_step(row: tuple) -> dict:
+    def _row_to_step_dict(row: tuple) -> dict:
         return {
             "step_id": row[0],
             "workflow_id": row[1],
@@ -171,3 +225,92 @@ class SQLiteWorkflowStore(WorkflowStoreBase):
             "is_pruned": bool(row[10]),
             "timestamp": row[11],
         }
+
+
+class MemoryWorkflowStore(WorkflowStoreBase):
+    """基于内存 dict 的 Workflow 元数据存储。"""
+
+    def __init__(self):
+        self._workflows: dict[str, Workflow] = {}
+
+    # ── Workflow CRUD ────────────────────────────────
+
+    def create_workflow(self, workflow_id: str, name: str,
+                        description: str = "", source_thread_id: str = "",
+                        tags: str = "") -> None:
+        now = datetime.datetime.now().isoformat()
+        self._workflows[workflow_id] = Workflow(
+            workflow_id=workflow_id,
+            name=name,
+            description=description,
+            status="RAW",
+            source_thread_id=source_thread_id,
+            tags=tags,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def get_workflow(self, workflow_id: str) -> Workflow | None:
+        return self._workflows.get(workflow_id)
+
+    def list_workflows(self, status: str | None = None) -> list[Workflow]:
+        result = list(self._workflows.values())
+        if status:
+            result = [w for w in result if w.status == status]
+        return result
+
+    def update_status(self, workflow_id: str, status: str) -> None:
+        wf = self._workflows.get(workflow_id)
+        if wf:
+            wf.status = status
+            wf.updated_at = datetime.datetime.now().isoformat()
+
+    def update_description(self, workflow_id: str, description: str) -> None:
+        wf = self._workflows.get(workflow_id)
+        if wf:
+            wf.description = description
+            wf.updated_at = datetime.datetime.now().isoformat()
+
+    def delete_workflow(self, workflow_id: str) -> None:
+        self._workflows.pop(workflow_id, None)
+
+    # ── Step CRUD ────────────────────────────────────
+
+    def add_step(self, step_id: str, workflow_id: str, step_index: int,
+                 type: str, name: str, arguments: str = "", result: str = "",
+                 status: str = "success", duration_ms: int = 0,
+                 error_message: str = "", timestamp: str = "") -> None:
+        wf = self._workflows.get(workflow_id)
+        if wf is None:
+            return
+        step = Step(
+            step_id=step_id,
+            workflow_id=workflow_id,
+            step_index=step_index,
+            type=type,
+            name=name,
+            arguments=arguments,
+            result=result,
+            status=status,
+            duration_ms=duration_ms,
+            error_message=error_message,
+            timestamp=timestamp,
+        )
+        wf.steps.append(step)
+        wf.steps.sort(key=lambda s: s.step_index)
+
+    def get_steps(self, workflow_id: str) -> list[Step]:
+        wf = self._workflows.get(workflow_id)
+        if wf is None:
+            return []
+        return sorted(wf.steps, key=lambda s: s.step_index)
+
+    def update_step_pruned(self, step_id: str, is_pruned: bool) -> None:
+        for wf in self._workflows.values():
+            for s in wf.steps:
+                if s.step_id == step_id:
+                    s.is_pruned = is_pruned
+                    return
+
+    def close(self) -> None:
+        pass

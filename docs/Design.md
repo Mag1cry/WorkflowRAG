@@ -93,25 +93,37 @@ Step = {
 
 ## 4. 系统架构
 
+```bash
+context_manager/
+├── models.py                    # Workflow + Step 数据类（顶层共享）
+├── persistence/                 # 持久化层
+│   ├── store.py                 # WorkflowStoreBase + SQLite + InMemory
+│   ├── index.py                 # WorkflowIndexBase + FAISS + InMemory
+│   └── embedding.py             # M3EEmbedding
+└── workflow/                    # Workflow 管理（RAG API）
+    ├── manager.py               # WorkflowManager（提取、剪枝、检索、编辑）
+    ├── pruner.py                # 规则剪枝引擎
+    └── injector.py              # 上下文注入
+```
+
 ```mermaid
 flowchart TB
     Agent[Agent]
-    WM[WorkflowManager]
-    WS[WorkflowStore<br/>SQLite]
-    WI[WorkflowIndex<br/>FAISS]
-    PR[Pruner<br/>剪枝引擎]
-    EM[Embedding<br/>M3E]
+    WM[WorkflowManager<br/>workflow/manager.py]
+    WS[WorkflowStore<br/>persistence/store.py]
+    WI[WorkflowIndex<br/>persistence/index.py]
+    EM[M3EEmbedding<br/>persistence/embedding.py]
+    PR[Pruner<br/>workflow/pruner.py]
+    INJ[Injector<br/>workflow/injector.py]
     CP[LangGraph Checkpointer]
 
     Agent --> WM
+    WM --> PR
+    WM --> INJ
     WM --> WS
     WM --> WI
-    WM --> PR
-    WS --> |workflows + steps| DB[(SQLite)]
-    WI --> |workflow_id → vector| VEC[(Vector Index)]
-    WS --> EM
-    WI --> EM
-    EM --> CP
+    WM --> EM
+    WS --> CP
 ```
 
 ---
@@ -120,18 +132,19 @@ flowchart TB
 
 ### 5.1 WorkflowManager
 
-统一入口，管理 Workflow 生命周期。
+位于 `workflow/manager.py`，统一入口，管理 Workflow 生命周期。
 
 职责：
 
 - `extract_workflow(thread_id)` → 任务完成后从 Checkpoints 提取步骤
 - `solidify(workflow_id)` → 对 RAW workflow 执行剪枝，生成 SOLIDIFIED
-- `retrieve(query, top_k)` → 检索相关 Workflow
-- `delete_workflow(workflow_id)` → 删除 Workflow
+- `retrieve(query, top_k)` → 检索相关 Workflow，返回 `Workflow` 对象列表
+- `format_context(workflow)` → 将 Workflow 格式化为 Agent 上下文注入文本
+- 审查 LLM 工具：`get_workflow`、`list_workflows`、`prune_step`、`update_workflow_description`、`delete_workflow`
 
 ### 5.2 WorkflowStore
 
-持久化 Workflow + Step 元数据。
+位于 `persistence/store.py`，持久化 Workflow + Step 元数据。
 
 Schema：
 
@@ -188,6 +201,15 @@ CREATE TABLE steps (
 ### 5.5 LangGraph Checkpointer
 
 保留，用于管理 Thread 状态和 Checkpoints。
+
+### 5.6 Injector
+
+位于 `workflow/injector.py`，负责将 Workflow 格式化为适合注入 Agent 上下文的文本。
+
+两种格式：
+
+- `format_context()` → 详细格式，含步骤名、参数、结果摘要
+- `format_context_compact()` → 紧凑格式，仅步骤名和参数摘要，适合 Token 敏感场景
 
 ---
 

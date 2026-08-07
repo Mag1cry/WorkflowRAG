@@ -1,11 +1,9 @@
 """WorkflowManager 集成测试。"""
 
-from context_manager import create_memory_manager
+from context_manager import create_memory_manager, Workflow, Step
 
 
 class TestWorkflowManager:
-    """WorkflowManager 核心功能测试（纯内存后端）。"""
-
     def setup_method(self):
         self.wfm = create_memory_manager()
 
@@ -13,22 +11,21 @@ class TestWorkflowManager:
         self.wfm.close()
 
     def test_create_workflow(self):
-        wf_id = "test_wf_001"
         self.wfm.workflow_store.create_workflow(
-            workflow_id=wf_id,
+            workflow_id="test_wf_001",
             name="测试 Workflow",
             source_thread_id="thread_001",
         )
-        wf = self.wfm.workflow_store.get_workflow(wf_id)
+        wf = self.wfm.workflow_store.get_workflow("test_wf_001")
         assert wf is not None
-        assert wf["name"] == "测试 Workflow"
-        assert wf["status"] == "RAW"
-        assert wf["source_thread_id"] == "thread_001"
+        assert isinstance(wf, Workflow)
+        assert wf.name == "测试 Workflow"
+        assert wf.status == "RAW"
+        assert wf.source_thread_id == "thread_001"
 
-    def test_add_and_get_steps(self):
+    def test_store_step(self):
         wf_id = "test_wf_steps"
         self.wfm.workflow_store.create_workflow(wf_id, "带步骤的 Workflow")
-
         self.wfm.workflow_store.add_step(
             step_id="s1", workflow_id=wf_id, step_index=0,
             type="toolcall", name="read_file",
@@ -41,17 +38,18 @@ class TestWorkflowManager:
             arguments="{'script': 'test.py'}", result="OK",
             timestamp="2024-01-01",
         )
-
         steps = self.wfm.workflow_store.get_steps(wf_id)
         assert len(steps) == 2
-        assert steps[0]["name"] == "read_file"
-        assert steps[1]["name"] == "python"
+        assert isinstance(steps[0], Step)
+        assert steps[0].name == "read_file"
+        assert steps[0].type == "toolcall"
+        assert steps[1].name == "python"
+        assert steps[1].type == "bashcall"
 
     def test_solidify_and_prune(self):
         wf_id = "test_prune"
         self.wfm.workflow_store.create_workflow(wf_id, "剪枝测试")
 
-        # 按顺序添加步骤：探索性bash → 写文件v1 → 写文件v2（覆盖）→ 验证
         steps_data = [
             ("s1", 0, "bashcall", "ls", "{'dir': '.'}", "files", "success"),
             ("s2", 1, "toolcall", "edit_file", "{'path': 'a.py', 'content': 'v1'}", "ok", "success"),
@@ -64,23 +62,20 @@ class TestWorkflowManager:
                 type=typ, name=name, arguments=args, result=result,
                 status=status, timestamp="2024-01-01",
             )
-
         self.wfm.solidify(wf_id)
 
         wf = self.wfm.workflow_store.get_workflow(wf_id)
-        assert wf["status"] == "SOLIDIFIED"
+        assert wf.status == "SOLIDIFIED"
 
         steps = self.wfm.workflow_store.get_steps(wf_id)
-        # s1 (ls) 应该被剪枝（探索性）, s2 (edit_file v1) 应该被剪枝（结果被覆盖）
-        pruned = [s for s in steps if s.get("is_pruned")]
-        kept = [s for s in steps if not s.get("is_pruned")]
-        assert len(pruned) == 2
-        assert len(kept) == 2
+        pruned = [s for s in steps if s.is_pruned]
+        kept = [s for s in steps if not s.is_pruned]
+        assert len(pruned) == 2  # ls + edit_file v1
+        assert len(kept) == 2    # edit_file v2 + python
 
     def test_retrieve(self):
         wf_id = "test_retrieve"
         self.wfm.workflow_store.create_workflow(wf_id, "检索测试")
-
         self.wfm.workflow_store.add_step(
             step_id="s1", workflow_id=wf_id, step_index=0,
             type="toolcall", name="read_file",
@@ -93,11 +88,10 @@ class TestWorkflowManager:
             arguments="{'path': 'bug.py'}", result="fixed",
             status="success", timestamp="2024-01-01",
         )
-
         self.wfm.solidify(wf_id)
-
         results = self.wfm.retrieve("修复 bug", top_k=3)
         assert len(results) >= 1
+        assert isinstance(results[0], Workflow)
 
     def test_retrieve_empty(self):
         results = self.wfm.retrieve("test")
@@ -107,16 +101,23 @@ class TestWorkflowManager:
         wf_id = "test_delete"
         self.wfm.workflow_store.create_workflow(wf_id, "待删除")
         assert self.wfm.workflow_store.get_workflow(wf_id) is not None
-
         self.wfm.delete_workflow(wf_id)
         assert self.wfm.workflow_store.get_workflow(wf_id) is None
 
     def test_list_workflows(self):
         self.wfm.workflow_store.create_workflow("wf1", "第一个")
         self.wfm.workflow_store.create_workflow("wf2", "第二个")
+        assert len(self.wfm.list_workflows()) == 2
+        assert len(self.wfm.list_workflows(status="RAW")) == 2
 
-        all_wf = self.wfm.list_workflows()
-        assert len(all_wf) == 2
-
-        raw_wf = self.wfm.list_workflows(status="RAW")
-        assert len(raw_wf) == 2
+    def test_prune_step_tool(self):
+        wf_id = "test_tool"
+        self.wfm.workflow_store.create_workflow(wf_id, "工具测试")
+        self.wfm.workflow_store.add_step(
+            step_id="s1", workflow_id=wf_id, step_index=0,
+            type="toolcall", name="read_file", timestamp="2024-01-01",
+        )
+        result = self.wfm.prune_step("s1", True)
+        assert result is True
+        steps = self.wfm.workflow_store.get_steps(wf_id)
+        assert steps[0].is_pruned is True

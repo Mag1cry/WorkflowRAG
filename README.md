@@ -1,5 +1,7 @@
 # WorkflowManager
 
+基于 LangGraph 的 Workflow 提取与管理引擎。
+
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![LangGraph](https://img.shields.io/badge/langgraph-%E2%9C%93-green)](https://langchain-ai.github.io/langgraph/)
 [![License](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
@@ -12,14 +14,7 @@
 
 ## 与 Skill 的区别
 
-| 维度 | 传统 Skill | Workflow |
-| ------ | ----------- | ---------- |
-| **性质** | Agent 自己总结的抽象描述 | 真实的、可执行的步骤序列 |
-| **粒度** | 高层概括 | 每一步 tool/bash 调用 |
-| **参考价值** | 概念指导 | 直接可复用的模板 |
-| **示例** | "修复导入错误要检查路径" | `read_file → grep → edit_file → python` |
-
-Agent 看到 Workflow 就知道**具体该怎么做**，而不是一个模糊的方向。
+Skill 是 Agent 自己总结的抽象描述，而 Workflow 是**真实的、可执行的步骤序列**——Agent 看到"上次解决这个问题用了这些步骤"，可以直接复用。
 
 ## 安装
 
@@ -27,36 +22,38 @@ Agent 看到 Workflow 就知道**具体该怎么做**，而不是一个模糊的
 pip install -r requirements.txt
 ```
 
-依赖：`torch` `transformers` `faiss-cpu` `scikit-learn` `numpy` `langgraph` `langchain-core`  
-模型：需本地放置 [moka-ai/m3e-base](https://huggingface.co/moka-ai/m3e-base)（768维中文嵌入）到 `models/` 目录
+依赖：`torch` `transformers` `faiss-cpu` `scikit-learn` `numpy` `langgraph` `langchain-core`
+模型：需本地放置 [moka-ai/m3e-base](https://huggingface.co/moka-ai/m3e-base)（768维中文嵌入）
 
 ## 快速开始
 
 ```bash
 python cli.py demo
+python cli.py review <thread_id>   # 一键审查
 ```
 
 ## 核心概念
 
 | 概念 | 说明 |
 | --- | --- |
-| **Workflow** | Agent 完成某项任务的有序 toolcall/bashcall 步骤序列（取代 Episode） |
+| **Workflow** | Agent 完成某项任务的有序 toolcall/bashcall 步骤序列 |
 | **Step** | 一次工具调用或命令执行，Workflow 的最小组成单元 |
 | **RAW** | 任务完成后从 Checkpoints 提取的原始步骤序列 |
 | **SOLIDIFIED** | 经过剪枝后的干净步骤序列，适合作为上下文注入 |
 
 ## 架构
 
-```mermaid
-flowchart TB
-    Agent --> WM[WorkflowManager]
-    WM --> Extract[extract_workflow<br/>从Checkpoints提取]
-    WM --> Pruner[Pruner<br/>剪枝无用步骤]
-    WM --> Store[WorkflowStore<br/>SQLite]
-    WM --> Index[WorkflowIndex<br/>FAISS]
-    WM --> Embed[Embedding<br/>M3E]
-    Store --> DB[(workflows + steps)]
-    Index --> Vec[(workflow_id → vector)]
+```bash
+context_manager/
+├── models.py                    # Workflow + Step 数据类（顶层共享）
+├── persistence/                 # 持久化层
+│   ├── store.py                 # WorkflowStore (SQLite/InMemory)
+│   ├── index.py                 # WorkflowIndex (FAISS/InMemory)
+│   └── embedding.py             # M3EEmbedding
+└── workflow/                    # Workflow 管理（RAG API）
+    ├── manager.py               # WorkflowManager（提取、剪枝、检索、编辑）
+    ├── pruner.py                # 规则剪枝引擎
+    └── injector.py              # 上下文注入（格式化 Workflow → Agent 上下文）
 ```
 
 ## API
@@ -69,17 +66,21 @@ wfm = WorkflowManager()
 # 1. 提取 Workflow（任务完成后，从 LangGraph Thread 事后提取）
 wf_id = wfm.extract_workflow("some_thread_id")
 
-# 2. 固化（剪枝 + 索引）
+# 2. 固化（规则剪枝 + 索引）
 wfm.solidify(wf_id)
 
-# 3. 检索（返回完整 Workflow 结构，含步骤序列）
+# 3. 检索（返回 Workflow 对象）
 results = wfm.retrieve("如何修复导入错误", top_k=3)
-# → [{"workflow_id", "name", "description", "similarity", "steps": [...]}]
+# → [Workflow(workflow_id, name, description, steps=[Step, ...])]
 
-# 4. 管理
-wfm.list_workflows()
+# 4. 上下文注入
+context = wfm.format_context(results[0])
+
+# 5. 审查 LLM 工具
 wfm.get_workflow(wf_id)
-wfm.delete_workflow(wf_id)
+wfm.list_workflows()
+wfm.prune_step("step_id", True)
+wfm.update_workflow_description(wf_id, "new desc")
 
 wfm.close()
 ```
@@ -88,7 +89,6 @@ wfm.close()
 
 ```python
 from context_manager import create_memory_manager
-
 wfm = create_memory_manager()
 ```
 
@@ -96,33 +96,46 @@ wfm = create_memory_manager()
 
 ```bash
 013ContextManager/
-├── cli.py                         # 统一入口
+├── cli.py                         # 统一入口（demo / review）
 ├── context_manager/
-│   ├── __init__.py                # 导出 WorkflowManager
-│   ├── config.py                  # Settings dataclass
-│   ├── embedding.py               # M3EEmbedding
-│   ├── manager.py                 # WorkflowManager
-│   ├── pruner.py                  # Pruner 剪枝引擎
-│   ├── storage/
-│   │   ├── base.py                # WorkflowStoreBase ABC
-│   │   ├── in_memory.py           # MemoryWorkflowStore
-│   │   └── sqlite.py              # SQLiteWorkflowStore
-│   └── index/
-│       ├── base.py                # WorkflowIndexBase ABC
-│       ├── in_memory.py           # MemoryWorkflowIndex
-│       └── faiss_index.py         # FaissWorkflowIndex
-├── tests/                         # 22 个测试
+│   ├── __init__.py                # 导出 WorkflowManager、Workflow、Step
+│   ├── config.py                  # Settings
+│   ├── models.py                  # Workflow + Step 数据类
+│   ├── persistence/               # 持久化层
+│   │   ├── __init__.py
+│   │   ├── store.py               # WorkflowStoreBase + SQLite + InMemory
+│   │   ├── index.py               # WorkflowIndexBase + FAISS + InMemory
+│   │   └── embedding.py           # M3EEmbedding
+│   └── workflow/                  # Workflow 管理
+│       ├── __init__.py
+│       ├── manager.py             # WorkflowManager
+│       ├── pruner.py              # 规则剪枝引擎
+│       └── injector.py            # 上下文注入
+├── tests/                         # 28 个测试
 ├── docs/
-│   ├── DESIGN.md                  # 完整设计文档
-│   └── README_EN.md               # English README
-└── requirements.txt
+│   └── Design.md                  # 完整设计文档
+└── .gitignore
 ```
 
 ## 运行测试
 
 ```bash
-pytest tests/ -v   # 22 个测试
+pytest tests/ -v   # 28 个测试
 ```
+
+## 审查流程
+
+```bash
+python cli.py review <langgraph_thread_id>
+```
+
+自动化流程：
+
+1. 从 LangGraph Thread 提取 RAW Workflow
+2. 展示步骤摘要
+3. 执行规则剪枝（探索性调用、结果被覆盖、出错但无关）
+4. 生成 SOLIDIFIED Workflow
+5. 写入 FAISS 索引
 
 ## 剪枝策略
 

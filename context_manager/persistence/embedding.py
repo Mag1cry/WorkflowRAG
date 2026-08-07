@@ -1,13 +1,12 @@
-"""M3E 文本嵌入引擎。
+"""M3E 文本嵌入引擎。"""
 
-从 demo.py 的 _embed() 方法提取，封装为独立类。
-"""
+from __future__ import annotations
 
 import torch
 import numpy as np
 from transformers import AutoTokenizer, AutoModel
 
-from .config import Settings
+from ..config import Settings
 
 
 class M3EEmbedding:
@@ -36,7 +35,7 @@ class M3EEmbedding:
 
     @property
     def dimension(self) -> int:
-        return self.settings.index_dimension  # 768
+        return self.settings.index_dimension
 
     def embed(self, text: str) -> np.ndarray:
         """单条文本 → (768,) 向量。"""
@@ -50,7 +49,7 @@ class M3EEmbedding:
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            vec = outputs.last_hidden_state.mean(dim=1)  # mean pooling
+            vec = outputs.last_hidden_state.mean(dim=1)
         return vec.cpu().numpy().squeeze().astype(np.float32)
 
     def embed_batch(self, texts: list[str]) -> np.ndarray:
@@ -68,5 +67,5 @@ class M3EEmbedding:
 
         with torch.no_grad():
             outputs = self.model(**inputs)
-            vecs = outputs.last_hidden_state.mean(dim=1)  # mean pooling
+            vecs = outputs.last_hidden_state.mean(dim=1)
         return vecs.cpu().numpy().astype(np.float32)

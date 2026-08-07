@@ -4,7 +4,7 @@
 任务完成后，从 LangGraph Checkpoints 中提取 toolcall/bashcall 步骤序列，
 经过剪枝优化后固化，作为未来任务的优秀案例注入上下文。
 
-用法:
+使用:
     from context_manager import WorkflowManager
 
     wfm = WorkflowManager()
@@ -13,16 +13,22 @@
     results = wfm.retrieve("如何修复导入错误")
 """
 
+from __future__ import annotations
+
 import uuid
 import datetime
 
 import numpy as np
 
-from .config import Settings
-from .embedding import M3EEmbedding
-from .storage import WorkflowStoreBase, SQLiteWorkflowStore, MemoryWorkflowStore
-from .index import WorkflowIndexBase, FaissWorkflowIndex, MemoryWorkflowIndex
+from ..config import Settings
+from ..models import Workflow, Step
+from ..persistence import (
+    WorkflowStoreBase, SQLiteWorkflowStore, MemoryWorkflowStore,
+    WorkflowIndexBase, FaissWorkflowIndex, MemoryWorkflowIndex,
+    M3EEmbedding,
+)
 from . import pruner as pruner_mod
+from .injector import format_context
 
 
 class WorkflowManager:
@@ -30,6 +36,8 @@ class WorkflowManager:
 
     依赖 LangGraph Checkpointer 管理 Thread 状态，
     WorkflowManager 自身负责步骤提取、剪枝、存储和检索。
+
+    所有公开方法也可作为审查 LLM 的 function call 使用。
     """
 
     def __init__(
@@ -59,16 +67,16 @@ class WorkflowManager:
     # ── 索引重建 ────────────────────────────────────
 
     def _rebuild_index(self) -> None:
-        """启动时从 SQLite 恢复 FAISS 索引。"""
+        """从 SQLite 重建 FAISS 索引。"""
         workflows = self.workflow_store.list_workflows(status="SOLIDIFIED")
         if not workflows:
             return
         restored = 0
         for wf in workflows:
-            desc = wf.get("description") or wf.get("name", "")
+            desc = wf.description or wf.name
             if desc:
                 vec = self.embedding.embed(desc)
-                self.index.add(wf["workflow_id"], vec)
+                self.index.add(wf.workflow_id, vec)
                 restored += 1
         if restored > 0:
             print(f"[WorkflowManager] 从存储恢复 {restored} 个 Workflow 索引")
@@ -176,7 +184,7 @@ class WorkflowManager:
 
         流程：
         1. 读取 Workflow 的所有 Step
-        2. 执行剪枝策略
+        2. 执行规则剪枝
         3. 更新剪枝标记到存储
         4. 生成 description
         5. 生成 Embedding → 写入索引
@@ -191,12 +199,13 @@ class WorkflowManager:
             print(f"  [SOLIDIFY] {workflow_id} — no steps, skipping")
             return
 
-        pruner_mod.prune(steps)
+        step_dicts = [s.to_dict() for s in steps]
+        pruner_mod.prune(step_dicts)
 
-        for step in steps:
-            self.workflow_store.update_step_pruned(step["step_id"], step.get("is_pruned", False))
+        for sd in step_dicts:
+            self.workflow_store.update_step_pruned(sd["step_id"], sd.get("is_pruned", False))
 
-        description = pruner_mod.generate_description(steps)
+        description = pruner_mod.generate_description(step_dicts)
 
         self.workflow_store.update_description(workflow_id, description)
 
@@ -206,17 +215,14 @@ class WorkflowManager:
 
         self.workflow_store.update_status(workflow_id, "SOLIDIFIED")
 
-        kept = sum(1 for s in steps if not s.get("is_pruned"))
-        total = len(steps)
+        kept = sum(1 for s in step_dicts if not s.get("is_pruned"))
+        total = len(step_dicts)
         print(f"  [SOLIDIFY] {workflow_id} | {kept}/{total} steps retained | {description[:60]}...")
 
     # ── 检索 ────────────────────────────────────────
 
-    def retrieve(self, query: str, top_k: int = 3) -> list[dict]:
-        """根据 query 检索最相关的 SOLIDIFIED Workflow。
-
-        返回完整 Workflow 结构（含步骤序列），适合注入 Agent 上下文。
-        """
+    def retrieve(self, query: str, top_k: int = 3) -> list[Workflow]:
+        """根据 query 检索最相关的 SOLIDIFIED Workflow。"""
         if self.index.size() == 0:
             return []
 
@@ -228,30 +234,23 @@ class WorkflowManager:
             wf = self.workflow_store.get_workflow(workflow_id)
             if wf is None:
                 continue
-            steps = self.workflow_store.get_steps(workflow_id)
-            kept_steps = [s for s in steps if not s.get("is_pruned")]
-            output.append({
-                "workflow_id": wf["workflow_id"],
-                "name": wf["name"],
-                "description": wf["description"],
-                "similarity": round(score, 3),
-                "status": wf["status"],
-                "created_at": wf["created_at"],
-                "steps": kept_steps,
-            })
+            wf.steps = [s for s in wf.steps if not s.is_pruned]
+            output.append(wf)
         return output
 
-    # ── 管理 ────────────────────────────────────────
+    # ── 上下文注入 ──────────────────────────────────
 
-    def get_workflow(self, workflow_id: str) -> dict | None:
+    def format_context(self, workflow: Workflow) -> str:
+        """将 Workflow 格式化为 Agent 上下文注入文本。"""
+        return format_context(workflow)
+
+    # ── 审查 LLM 工具 ────────────────────────────────
+
+    def get_workflow(self, workflow_id: str) -> Workflow | None:
         """获取 Workflow 及其 Steps。"""
-        wf = self.workflow_store.get_workflow(workflow_id)
-        if wf is None:
-            return None
-        wf["steps"] = self.workflow_store.get_steps(workflow_id)
-        return wf
+        return self.workflow_store.get_workflow(workflow_id)
 
-    def list_workflows(self, status: str | None = None) -> list[dict]:
+    def list_workflows(self, status: str | None = None) -> list[Workflow]:
         """列出 Workflow。可选按 status 过滤。"""
         return self.workflow_store.list_workflows(status)
 
@@ -260,6 +259,38 @@ class WorkflowManager:
         self.workflow_store.delete_workflow(workflow_id)
         self.index.remove(workflow_id)
         print(f"  [DELETE] {workflow_id}")
+
+    def update_workflow_name(self, workflow_id: str, name: str) -> bool:
+        """更新 Workflow 名称。"""
+        wf = self.workflow_store.get_workflow(workflow_id)
+        if wf is None:
+            return False
+        self.workflow_store.update_description(workflow_id, name)
+        return True
+
+    def update_workflow_description(self, workflow_id: str, description: str) -> bool:
+        """更新 Workflow 描述。"""
+        wf = self.workflow_store.get_workflow(workflow_id)
+        if wf is None:
+            return False
+        self.workflow_store.update_description(workflow_id, description)
+        return True
+
+    def prune_step(self, step_id: str, is_pruned: bool) -> bool:
+        """标记/取消标记 Step 为已剪枝。"""
+        self.workflow_store.update_step_pruned(step_id, is_pruned)
+        return True
+
+    def update_step(self, step_id: str, **kwargs) -> bool:
+        """更新 Step 的字段（name, arguments, result 等）。
+        
+        当前仅支持更新 is_pruned 标记，完整字段更新需后续扩展。
+        """
+        if "is_pruned" in kwargs:
+            self.workflow_store.update_step_pruned(step_id, kwargs["is_pruned"])
+        return True
+
+    # ── 生命周期 ────────────────────────────────────
 
     def close(self) -> None:
         """关闭所有连接。"""

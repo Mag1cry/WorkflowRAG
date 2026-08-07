@@ -14,7 +14,8 @@
 """
 
 from .config import Settings
-from .manager import WorkflowManager, create_memory_manager
+from .models import Workflow, Step
+from .workflow import WorkflowManager, create_memory_manager
 
-__version__ = "0.5.0"
-__all__ = ["WorkflowManager", "Settings", "create_memory_manager"]
+__version__ = "0.6.0"
+__all__ = ["WorkflowManager", "Workflow", "Step", "Settings", "create_memory_manager"]
