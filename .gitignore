@@ -41,6 +41,11 @@ Thumbs.db
 .pytest_cache/
 .hypothesis/
 
+# Eval runtime artifacts
+eval/tmp/
+eval/results/
+eval/*.log
+
 # Runtime
 *.pid
 *.lock
