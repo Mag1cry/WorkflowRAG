@@ -112,13 +112,14 @@ T3_PROMPT = (
 
 
 def verify_t3(sb: Path) -> tuple[bool, str]:
-    jpgs = sorted(sb.glob("*.jpg"))
+    # 注意：photo_*.jpg 也匹配 *.jpg，必须用 IMG_*.jpg 检查原文件是否全部重命名
+    imgs = sorted(sb.glob("IMG_*.jpg"))
     photos = sorted(sb.glob("photo_*.jpg"))
     notes_ok = (sb / "notes.txt").read_text(encoding="utf-8").startswith("do not touch")
     archive_ok = (sb / "archive" / "readme.md").exists()
-    if len(jpgs) == 0 and len(photos) == 8 and notes_ok and archive_ok:
+    if len(imgs) == 0 and len(photos) == 8 and notes_ok and archive_ok:
         return True, f"8 photos renamed, notes/archive intact"
-    return False, f"jpg={len(jpgs)} photo_*.jpg={len(photos)} notes_ok={notes_ok} archive_ok={archive_ok}"
+    return False, f"IMG_*.jpg={len(imgs)} photo_*.jpg={len(photos)} notes_ok={notes_ok} archive_ok={archive_ok}"
 
 
 # ── T4: 运行测试并修复失败 ────────────────────────────
