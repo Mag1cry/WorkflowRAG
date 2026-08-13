@@ -29,6 +29,7 @@ from ..persistence import (
 )
 from . import pruner as pruner_mod
 from .injector import format_context
+from .visualizer import visualize_workflow as _visualize, visualize_comparison as _compare, build_case_study as _case_study
 
 
 class WorkflowManager:
@@ -265,7 +266,7 @@ class WorkflowManager:
         wf = self.workflow_store.get_workflow(workflow_id)
         if wf is None:
             return False
-        self.workflow_store.update_description(workflow_id, name)
+        self.workflow_store.update_name(workflow_id, name)
         return True
 
     def update_workflow_description(self, workflow_id: str, description: str) -> bool:
@@ -282,15 +283,304 @@ class WorkflowManager:
         return True
 
     def update_step(self, step_id: str, **kwargs) -> bool:
-        """更新 Step 的字段（name, arguments, result 等）。
-        
-        当前仅支持更新 is_pruned 标记，完整字段更新需后续扩展。
+        """更新 Step 的字段（name, arguments, result, status, error_message, type, timestamp, is_pruned 等）。
+
+        LLM 审查工具：必须通过此工具修改步骤，禁止直接输出修改后的内容。
+        返回简短确认，不返回被修改的数据。
         """
-        if "is_pruned" in kwargs:
-            self.workflow_store.update_step_pruned(step_id, kwargs["is_pruned"])
+        updatable = {"name", "arguments", "result", "status", "error_message",
+                     "duration_ms", "type", "timestamp", "is_pruned"}
+        fields = {k: v for k, v in kwargs.items() if k in updatable}
+        if fields:
+            self.workflow_store.update_step_fields(step_id, **fields)
         return True
 
-    # ── 生命周期 ────────────────────────────────────
+    # ── 可视化与案例 ────────────────────────────────
+
+    def visualize(self, workflow_id: str, show_pruned: bool = True) -> str:
+        """可视化指定 Workflow 的步骤序列。"""
+        wf = self.workflow_store.get_workflow(workflow_id)
+        if wf is None:
+            return f"Workflow not found: {workflow_id}"
+        return _visualize(wf, show_pruned=show_pruned)
+
+    def visualize_comparison(self, workflow_id: str) -> str:
+        """对比 RAW 和剪枝后的效果（需先运行 solidify）。"""
+        wf = self.workflow_store.get_workflow(workflow_id)
+        if wf is None:
+            return f"Workflow not found: {workflow_id}"
+
+        raw = Workflow(
+            workflow_id=wf.workflow_id,
+            name=wf.name,
+            status="RAW",
+            steps=wf.steps,
+        )
+
+        kept = [s for s in wf.steps if not s.is_pruned]
+        solidified = Workflow(
+            workflow_id=wf.workflow_id,
+            name=wf.name,
+            status="SOLIDIFIED",
+            description=wf.description,
+            steps=kept,
+        )
+        return _compare(raw, solidified)
+
+    @staticmethod
+    def run_case_study() -> str:
+        """运行内置案例，展示剪枝效果。"""
+        raw, solidified = _case_study()
+        return _compare(raw, solidified)
+
+    # ── 审查 LLM 工具（新增/增强） ──────────────────
+
+    def get_step(self, workflow_id: str, step_index: int) -> str:
+        """获取指定 Workflow 中第 N 步的详细信息。"""
+        wf = self.workflow_store.get_workflow(workflow_id)
+        if wf is None:
+            return f"Workflow not found: {workflow_id}"
+        for s in wf.steps:
+            if s.step_index == step_index:
+                return (f"Step {s.step_index}: [{s.type}] {s.name}\n"
+                        f"  args: {s.arguments}\n"
+                        f"  result: {s.result}\n"
+                        f"  status: {s.status} | pruned: {s.is_pruned}")
+        return f"Step index {step_index} not found in {workflow_id}"
+
+    def add_step(self, workflow_id: str, after_index: int, type: str, name: str,
+                 arguments: str = "", result: str = "", status: str = "success") -> str:
+        """在指定位置后插入一个新步骤。返回新 step_id，不返回步骤内容。"""
+        import uuid
+        wf = self.workflow_store.get_workflow(workflow_id)
+        if wf is None:
+            return f"Workflow not found: {workflow_id}"
+
+        existing = sorted(wf.steps, key=lambda s: s.step_index)
+        new_index = after_index + 1
+        for s in existing:
+            if s.step_index >= new_index:
+                s.step_index += 1
+
+        step_id = uuid.uuid4().hex[:12]
+        self.workflow_store.add_step(
+            step_id=step_id, workflow_id=workflow_id, step_index=new_index,
+            type=type, name=name, arguments=arguments,
+            result=result, status=status,
+        )
+        return f"ok:{step_id}"
+
+    def remove_step(self, step_id: str) -> str:
+        """删除指定步骤。返回简短确认。"""
+        self.workflow_store.delete_step(step_id)
+        return "ok"
+
+    def reorder_steps(self, workflow_id: str, step_id_order: list[str]) -> str:
+        """重新排序步骤。step_id_order 是 step_id 列表，按新顺序排列。"""
+        step_index_map = {sid: i for i, sid in enumerate(step_id_order)}
+        self.workflow_store.reorder_steps(workflow_id, step_index_map)
+        return "ok"
+
+    def batch_prune(self, workflow_id: str, step_ids: list[str]) -> str:
+        """批量标记步骤为已剪枝。"""
+        for sid in step_ids:
+            self.workflow_store.update_step_pruned(sid, True)
+        return f"ok: {len(step_ids)} steps pruned"
+
+    def review_summary(self, workflow_id: str) -> str:
+        """生成审查摘要：步骤总数、保留/剪枝数、类型分布。"""
+        wf = self.workflow_store.get_workflow(workflow_id)
+        if wf is None:
+            return f"Workflow not found: {workflow_id}"
+        total = len(wf.steps)
+        if total == 0:
+            return f"Workflow {workflow_id}: (empty)"
+        kept = sum(1 for s in wf.steps if not s.is_pruned)
+        pruned = total - kept
+        tc = sum(1 for s in wf.steps if s.type == "toolcall")
+        bc = sum(1 for s in wf.steps if s.type == "bashcall")
+        failed = sum(1 for s in wf.steps if s.status == "failure")
+        return (f"Workflow: {wf.name} ({wf.status})\n"
+                f"  步骤: {total}  | 保留: {kept}  | 剪枝: {pruned}\n"
+                f"  toolcall: {tc}  | bashcall: {bc}  | 失败: {failed}")
+
+    # ── Function Call Schema ─────────────────────────
+
+    def get_tool_schemas(self) -> list[dict]:
+        """返回所有可用工具的 OpenAI-compatible function call schema。"""
+        return [
+            {
+                "name": "get_workflow",
+                "description": "获取 Workflow 完整信息（含所有步骤）",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "workflow_id": {"type": "string", "description": "Workflow ID"}
+                    },
+                    "required": ["workflow_id"],
+                },
+            },
+            {
+                "name": "list_workflows",
+                "description": "列出所有 Workflow，可按状态过滤",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "status": {"type": "string", "enum": ["RAW", "SOLIDIFIED"], "description": "过滤状态（可选）"}
+                    },
+                },
+            },
+            {
+                "name": "visualize",
+                "description": "可视化 Workflow 的步骤序列（带颜色分类）",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "workflow_id": {"type": "string", "description": "Workflow ID"},
+                        "show_pruned": {"type": "boolean", "description": "是否显示已剪枝步骤"},
+                    },
+                    "required": ["workflow_id"],
+                },
+            },
+            {
+                "name": "review_summary",
+                "description": "审查摘要：步骤总数、保留/剪枝数、类型分布",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "workflow_id": {"type": "string", "description": "Workflow ID"}
+                    },
+                    "required": ["workflow_id"],
+                },
+            },
+            {
+                "name": "get_step",
+                "description": "获取 Workflow 中某一步的详细信息",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "workflow_id": {"type": "string", "description": "Workflow ID"},
+                        "step_index": {"type": "integer", "description": "步骤索引（从0开始）"},
+                    },
+                    "required": ["workflow_id", "step_index"],
+                },
+            },
+            {
+                "name": "prune_step",
+                "description": "标记/取消标记步骤为已剪枝（反复调用幂等）",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "step_id": {"type": "string", "description": "Step ID"},
+                        "is_pruned": {"type": "boolean", "description": "true=剪枝，false=取消剪枝"},
+                    },
+                    "required": ["step_id", "is_pruned"],
+                },
+            },
+            {
+                "name": "batch_prune",
+                "description": "批量标记多个步骤为已剪枝",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "workflow_id": {"type": "string", "description": "Workflow ID"},
+                        "step_ids": {"type": "array", "items": {"type": "string"}, "description": "要剪枝的 step_id 列表"},
+                    },
+                    "required": ["workflow_id", "step_ids"],
+                },
+            },
+            {
+                "name": "update_step",
+                "description": "更新步骤的字段（name/arguments/result/status/type/is_pruned 等）。LLM 必须通过此工具修改，禁止直接输出修改后的内容。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "step_id": {"type": "string", "description": "Step ID"},
+                        "name": {"type": "string", "description": "步骤名称"},
+                        "arguments": {"type": "string", "description": "参数字符串"},
+                        "result": {"type": "string", "description": "结果字符串"},
+                        "status": {"type": "string", "enum": ["success", "failure"]},
+                        "is_pruned": {"type": "boolean"},
+                        "type": {"type": "string", "enum": ["toolcall", "bashcall"]},
+                        "error_message": {"type": "string"},
+                    },
+                },
+            },
+            {
+                "name": "add_step",
+                "description": "在指定位置后插入新步骤。返回新 step_id。禁止直接输出步骤内容。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "workflow_id": {"type": "string", "description": "Workflow ID"},
+                        "after_index": {"type": "integer", "description": "在此索引后插入（从0开始，-1=插入到开头）"},
+                        "type": {"type": "string", "enum": ["toolcall", "bashcall"]},
+                        "name": {"type": "string", "description": "步骤名称"},
+                        "arguments": {"type": "string", "description": "参数"},
+                        "result": {"type": "string", "description": "结果"},
+                        "status": {"type": "string", "enum": ["success", "failure"]},
+                    },
+                    "required": ["workflow_id", "after_index", "type", "name"],
+                },
+            },
+            {
+                "name": "remove_step",
+                "description": "删除指定步骤。返回简短确认。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "step_id": {"type": "string", "description": "要删除的 Step ID"}
+                    },
+                    "required": ["step_id"],
+                },
+            },
+            {
+                "name": "reorder_steps",
+                "description": "重新排序步骤",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "workflow_id": {"type": "string", "description": "Workflow ID"},
+                        "step_id_order": {"type": "array", "items": {"type": "string"}, "description": "按新顺序排列的 step_id 列表"},
+                    },
+                    "required": ["workflow_id", "step_id_order"],
+                },
+            },
+            {
+                "name": "update_workflow_description",
+                "description": "更新 Workflow 描述",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "workflow_id": {"type": "string", "description": "Workflow ID"},
+                        "description": {"type": "string", "description": "新描述"},
+                    },
+                    "required": ["workflow_id", "description"],
+                },
+            },
+            {
+                "name": "solidify",
+                "description": "对 RAW Workflow 执行剪枝，生成 SOLIDIFIED",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "workflow_id": {"type": "string", "description": "Workflow ID"}
+                    },
+                    "required": ["workflow_id"],
+                },
+            },
+            {
+                "name": "delete_workflow",
+                "description": "物理删除 Workflow",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "workflow_id": {"type": "string", "description": "Workflow ID"}
+                    },
+                    "required": ["workflow_id"],
+                },
+            },
+        ]
 
     def close(self) -> None:
         """关闭所有连接。"""

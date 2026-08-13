@@ -121,3 +121,151 @@ class TestWorkflowManager:
         assert result is True
         steps = self.wfm.workflow_store.get_steps(wf_id)
         assert steps[0].is_pruned is True
+
+    # ── 新工具测试 ──────────────────────────────────
+
+    def test_get_step(self):
+        wf_id = "test_get_step"
+        self.wfm.workflow_store.create_workflow(wf_id, "获取步骤测试")
+        self.wfm.workflow_store.add_step(
+            step_id="s1", workflow_id=wf_id, step_index=0,
+            type="toolcall", name="read_file",
+            arguments="{'path': 'test.py'}", result="content",
+            timestamp="2024-01-01",
+        )
+        result = self.wfm.get_step(wf_id, 0)
+        assert "Step 0" in result
+        assert "read_file" in result
+        assert "test.py" in result
+
+    def test_get_step_not_found(self):
+        result = self.wfm.get_step("nonexistent", 0)
+        assert "not found" in result
+
+    def test_add_step(self):
+        wf_id = "test_add_step"
+        self.wfm.workflow_store.create_workflow(wf_id, "添加步骤测试")
+        self.wfm.workflow_store.add_step(
+            step_id="s1", workflow_id=wf_id, step_index=0,
+            type="toolcall", name="read_file", timestamp="2024-01-01",
+        )
+        result = self.wfm.add_step(wf_id, 0, "bashcall", "python",
+                                   arguments="{'script': 'test.py'}", result="OK")
+        assert result.startswith("ok:")
+        step_id = result.split(":")[1]
+        assert len(step_id) == 12
+        steps = self.wfm.workflow_store.get_steps(wf_id)
+        assert len(steps) == 2
+        assert steps[1].name == "python"
+
+    def test_add_step_nonexistent_workflow(self):
+        result = self.wfm.add_step("nonexistent", 0, "toolcall", "read_file")
+        assert "not found" in result
+
+    def test_remove_step(self):
+        wf_id = "test_remove_step"
+        self.wfm.workflow_store.create_workflow(wf_id, "删除步骤测试")
+        self.wfm.workflow_store.add_step(
+            step_id="s1", workflow_id=wf_id, step_index=0,
+            type="toolcall", name="read_file", timestamp="2024-01-01",
+        )
+        self.wfm.workflow_store.add_step(
+            step_id="s2", workflow_id=wf_id, step_index=1,
+            type="bashcall", name="python", timestamp="2024-01-01",
+        )
+        result = self.wfm.remove_step("s1")
+        assert result == "ok"
+        steps = self.wfm.workflow_store.get_steps(wf_id)
+        assert len(steps) == 1
+
+    def test_reorder_steps(self):
+        wf_id = "test_reorder"
+        self.wfm.workflow_store.create_workflow(wf_id, "重排序测试")
+        self.wfm.workflow_store.add_step(
+            step_id="s1", workflow_id=wf_id, step_index=0,
+            type="toolcall", name="step_a", timestamp="2024-01-01",
+        )
+        self.wfm.workflow_store.add_step(
+            step_id="s2", workflow_id=wf_id, step_index=1,
+            type="toolcall", name="step_b", timestamp="2024-01-01",
+        )
+        result = self.wfm.reorder_steps(wf_id, ["s2", "s1"])
+        assert result == "ok"
+        steps = self.wfm.workflow_store.get_steps(wf_id)
+        assert steps[0].step_id == "s2"
+        assert steps[1].step_id == "s1"
+
+    def test_batch_prune(self):
+        wf_id = "test_batch_prune"
+        self.wfm.workflow_store.create_workflow(wf_id, "批量剪枝测试")
+        self.wfm.workflow_store.add_step(
+            step_id="s1", workflow_id=wf_id, step_index=0,
+            type="toolcall", name="read_file", timestamp="2024-01-01",
+        )
+        self.wfm.workflow_store.add_step(
+            step_id="s2", workflow_id=wf_id, step_index=1,
+            type="bashcall", name="ls", timestamp="2024-01-01",
+        )
+        result = self.wfm.batch_prune(wf_id, ["s1", "s2"])
+        assert "2 steps pruned" in result
+        steps = self.wfm.workflow_store.get_steps(wf_id)
+        assert all(s.is_pruned for s in steps)
+
+    def test_review_summary(self):
+        wf_id = "test_review_summary"
+        self.wfm.workflow_store.create_workflow(wf_id, "摘要测试")
+        self.wfm.workflow_store.add_step(
+            step_id="s1", workflow_id=wf_id, step_index=0,
+            type="toolcall", name="read_file", status="success",
+            timestamp="2024-01-01",
+        )
+        self.wfm.workflow_store.add_step(
+            step_id="s2", workflow_id=wf_id, step_index=1,
+            type="bashcall", name="python", status="failure",
+            timestamp="2024-01-01",
+        )
+        summary = self.wfm.review_summary(wf_id)
+        assert "摘要测试" in summary
+        assert "toolcall: 1" in summary
+        assert "bashcall: 1" in summary
+        assert "失败: 1" in summary
+
+    def test_review_summary_empty(self):
+        self.wfm.workflow_store.create_workflow("empty_wf", "空 Workflow")
+        summary = self.wfm.review_summary("empty_wf")
+        assert "(empty)" in summary
+
+    def test_update_step_all_fields(self):
+        wf_id = "test_update_fields"
+        self.wfm.workflow_store.create_workflow(wf_id, "字段更新测试")
+        self.wfm.workflow_store.add_step(
+            step_id="s1", workflow_id=wf_id, step_index=0,
+            type="toolcall", name="read_file",
+            arguments="{'path': 'old.py'}", result="旧内容",
+            timestamp="2024-01-01",
+        )
+        self.wfm.update_step("s1", name="edit_file", arguments="{'path': 'new.py'}", result="新内容")
+        steps = self.wfm.workflow_store.get_steps(wf_id)
+        assert steps[0].name == "edit_file"
+        assert steps[0].arguments == "{'path': 'new.py'}"
+        assert steps[0].result == "新内容"
+
+    def test_get_tool_schemas(self):
+        schemas = self.wfm.get_tool_schemas()
+        assert isinstance(schemas, list)
+        assert len(schemas) >= 14
+        names = [s["name"] for s in schemas]
+        assert "get_workflow" in names
+        assert "update_step" in names
+        assert "add_step" in names
+        assert "remove_step" in names
+        assert "reorder_steps" in names
+        assert "batch_prune" in names
+        assert "review_summary" in names
+        assert "get_step" in names
+        # 验证每个 schema 都有必要字段
+        for s in schemas:
+            assert "name" in s
+            assert "description" in s
+            assert "parameters" in s
+            assert "properties" in s["parameters"]

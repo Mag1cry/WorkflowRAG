@@ -31,6 +31,10 @@ class WorkflowStoreBase(ABC):
         ...
 
     @abstractmethod
+    def update_name(self, workflow_id: str, name: str) -> None:
+        ...
+
+    @abstractmethod
     def update_description(self, workflow_id: str, description: str) -> None:
         ...
 
@@ -51,6 +55,18 @@ class WorkflowStoreBase(ABC):
 
     @abstractmethod
     def update_step_pruned(self, step_id: str, is_pruned: bool) -> None:
+        ...
+
+    @abstractmethod
+    def update_step_fields(self, step_id: str, **fields) -> None:
+        ...
+
+    @abstractmethod
+    def delete_step(self, step_id: str) -> None:
+        ...
+
+    @abstractmethod
+    def reorder_steps(self, workflow_id: str, step_index_map: dict[str, int]) -> None:
         ...
 
     @abstractmethod
@@ -147,6 +163,14 @@ class SQLiteWorkflowStore(WorkflowStoreBase):
         )
         self._conn.commit()
 
+    def update_name(self, workflow_id: str, name: str) -> None:
+        now = datetime.datetime.now().isoformat()
+        self._conn.execute(
+            "UPDATE workflows SET name = ?, updated_at = ? WHERE workflow_id = ?",
+            (name, now, workflow_id),
+        )
+        self._conn.commit()
+
     def update_description(self, workflow_id: str, description: str) -> None:
         now = datetime.datetime.now().isoformat()
         self._conn.execute(
@@ -190,6 +214,31 @@ class SQLiteWorkflowStore(WorkflowStoreBase):
             (1 if is_pruned else 0, step_id),
         )
         self._conn.commit()
+
+    def update_step_fields(self, step_id: str, **fields) -> None:
+        allowed = {"name", "arguments", "result", "status", "error_message", "duration_ms", "type", "timestamp"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [step_id]
+        self._conn.execute(
+            f"UPDATE steps SET {set_clause} WHERE step_id = ?",
+            values,
+        )
+        self._conn.commit()
+
+    def delete_step(self, step_id: str) -> None:
+        self._conn.execute("DELETE FROM steps WHERE step_id = ?", (step_id,))
+        self._conn.commit()
+
+    def reorder_steps(self, workflow_id: str, step_index_map: dict[str, int]) -> None:
+        with self._conn:
+            for step_id, new_index in step_index_map.items():
+                self._conn.execute(
+                    "UPDATE steps SET step_index = ? WHERE step_id = ? AND workflow_id = ?",
+                    (new_index, step_id, workflow_id),
+                )
 
     def close(self) -> None:
         self._conn.close()
@@ -265,6 +314,12 @@ class MemoryWorkflowStore(WorkflowStoreBase):
             wf.status = status
             wf.updated_at = datetime.datetime.now().isoformat()
 
+    def update_name(self, workflow_id: str, name: str) -> None:
+        wf = self._workflows.get(workflow_id)
+        if wf:
+            wf.name = name
+            wf.updated_at = datetime.datetime.now().isoformat()
+
     def update_description(self, workflow_id: str, description: str) -> None:
         wf = self._workflows.get(workflow_id)
         if wf:
@@ -311,6 +366,29 @@ class MemoryWorkflowStore(WorkflowStoreBase):
                 if s.step_id == step_id:
                     s.is_pruned = is_pruned
                     return
+
+    def update_step_fields(self, step_id: str, **fields) -> None:
+        allowed = {"name", "arguments", "result", "status", "error_message", "duration_ms", "type", "timestamp", "is_pruned"}
+        for wf in self._workflows.values():
+            for s in wf.steps:
+                if s.step_id == step_id:
+                    for k, v in fields.items():
+                        if k in allowed:
+                            setattr(s, k, v)
+                    return
+
+    def delete_step(self, step_id: str) -> None:
+        for wf in self._workflows.values():
+            wf.steps = [s for s in wf.steps if s.step_id != step_id]
+
+    def reorder_steps(self, workflow_id: str, step_index_map: dict[str, int]) -> None:
+        wf = self._workflows.get(workflow_id)
+        if wf is None:
+            return
+        for s in wf.steps:
+            if s.step_id in step_index_map:
+                s.step_index = step_index_map[s.step_id]
+        wf.steps.sort(key=lambda s: s.step_index)
 
     def close(self) -> None:
         pass

@@ -79,3 +79,33 @@ class TestSQLiteWorkflowStore:
 
     def test_get_nonexistent(self):
         assert self.store.get_workflow("nonexistent") is None
+
+    def test_update_step_fields(self):
+        self.store.create_workflow("wf1", "字段更新测试")
+        self.store.add_step("s1", "wf1", 0, "toolcall", "read_file",
+                            arguments="{'path': 'old.py'}", result="旧内容")
+        self.store.update_step_fields("s1", name="edit_file", arguments="{'path': 'new.py'}", result="新内容")
+        steps = self.store.get_steps("wf1")
+        assert steps[0].name == "edit_file"
+        assert steps[0].arguments == "{'path': 'new.py'}"
+        assert steps[0].result == "新内容"
+
+    def test_delete_step(self):
+        self.store.create_workflow("wf1", "删除步骤测试")
+        self.store.add_step("s1", "wf1", 0, "toolcall", "read_file")
+        self.store.add_step("s2", "wf1", 1, "bashcall", "python")
+        self.store.delete_step("s1")
+        steps = self.store.get_steps("wf1")
+        assert len(steps) == 1
+        assert steps[0].step_id == "s2"
+
+    def test_reorder_steps(self):
+        self.store.create_workflow("wf1", "重排序测试")
+        self.store.add_step("s1", "wf1", 0, "toolcall", "step_a")
+        self.store.add_step("s2", "wf1", 1, "toolcall", "step_b")
+        self.store.add_step("s3", "wf1", 2, "toolcall", "step_c")
+        self.store.reorder_steps("wf1", {"s1": 2, "s2": 0, "s3": 1})
+        steps = self.store.get_steps("wf1")
+        assert steps[0].step_id == "s2"
+        assert steps[1].step_id == "s3"
+        assert steps[2].step_id == "s1"

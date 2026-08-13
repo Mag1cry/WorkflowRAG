@@ -111,21 +111,60 @@ def cmd_review(args) -> None:
     wfm.close()
 
 
+def cmd_case(args) -> None:
+    """运行内置案例，展示剪枝效果。"""
+    from context_manager.workflow.visualizer import build_case_study, visualize_comparison
+
+    raw, solidified = build_case_study()
+    print()
+    print(visualize_comparison(raw, solidified))
+    print()
+
+    # 展示上下文注入对比
+    print("=" * 60)
+    print("  上下文注入（剪枝前 vs 剪枝后）")
+    print("=" * 60)
+    print()
+
+    from context_manager.workflow.injector import format_context
+
+    print("【剪枝前 - 注入 Agent 上下文】")
+    print("-" * 40)
+    print(format_context(raw))
+    print()
+    print("【剪枝后 - 注入 Agent 上下文】")
+    print("-" * 40)
+    print(format_context(solidified))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="WorkflowManager CLI — AI Workflow 管理引擎",
     )
+    parser.add_argument("--list-tools", action="store_true",
+                        help="输出所有审查 LLM 工具的 function call schema（JSON）")
     subparsers = parser.add_subparsers(dest="command", help="子命令")
 
     subparsers.add_parser("demo", help="运行 demo")
+    subparsers.add_parser("case", help="运行剪枝效果案例")
 
     review_parser = subparsers.add_parser("review", help="审查 Thread 的工作流")
     review_parser.add_argument("thread", help="LangGraph Thread ID")
 
     args = parser.parse_args()
 
+    if args.list_tools:
+        from context_manager import create_memory_manager
+        wfm = create_memory_manager()
+        import json
+        print(json.dumps(wfm.get_tool_schemas(), indent=2, ensure_ascii=False))
+        wfm.close()
+        return
+
     if args.command == "demo":
         cmd_demo(args)
+    elif args.command == "case":
+        cmd_case(args)
     elif args.command == "review":
         cmd_review(args)
     else:
