@@ -185,7 +185,9 @@ def build_agent(sandbox: str, system_extra: str = ""):
         "规则：\n"
         "1. 只能操作 sandbox 目录内的文件，禁止访问其他路径\n"
         "2. 用 bash 执行 python/pytest 等命令验证结果\n"
-        "3. 任务完成后，用最终回答简要说明你做了什么、结果如何\n"
+        "3. 环境是 Windows：命令在 cmd 兼容 shell 中执行，python 命令可直接使用；"
+        "文件浏览请优先使用 list_dir/read_file 工具，避免使用 ls/cat/chmod 等 Linux 命令\n"
+        "4. 任务完成后，用最终回答简要说明你做了什么、结果如何\n"
         + (system_extra or "")
     )
     checkpointer = MemorySaver()
@@ -212,7 +214,10 @@ def run_and_stats(agent, thread_id: str, task_prompt: str, max_steps: int = 50) 
             "steps": int,                  # 模型调用轮数
         }
     """
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": max(100, max_steps * 2 + 10),
+    }
     tool_calls: list[dict] = []
     prompt_tokens = completion_tokens = total_tokens = 0
     steps = 0

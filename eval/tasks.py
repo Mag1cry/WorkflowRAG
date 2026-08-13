@@ -53,47 +53,41 @@ def verify_t1(sb: Path) -> tuple[bool, str]:
     return False, f"exit={r.returncode} stdout={r.stdout.strip()!r} stderr={r.stderr.strip()[-300:]!r}"
 
 
-# ── T2: 安装本地依赖包并验证 ─────────────────────────
+# ── T2: 创建虚拟环境并验证运行 ───────────────────────
 
 
 def init_t2(sb: Path) -> None:
-    # 本地包：纯 Python，无任何第三方依赖（离线可装）
-    (sb / "mylib").mkdir()
-    (sb / "mylib" / "__init__.py").write_text(
-        "def greet(name: str) -> str:\n"
-        "    return f'hello, {name}!'\n",
-        encoding="utf-8",
-    )
     (sb / "demo.py").write_text(
-        "from mylib import greet\n"
-        "print(greet('cm_eval'))\n",
+        "import platform, sys\n"
+        "print('python:', platform.python_version())\n"
+        "print('demo OK')\n",
         encoding="utf-8",
     )
-    (sb / "requirements.txt").write_text("mylib\n", encoding="utf-8")
+    (sb / "test_demo.py").write_text(
+        "import demo\n",
+        encoding="utf-8",
+    )
 
 
 T2_PROMPT = (
-    "目录中有本地包 mylib/（纯 Python 包）、demo.py 和 requirements.txt。"
-    "demo.py 依赖 mylib 但尚未安装。请把 mylib 安装到本目录的 vendor/ 子目录"
-    "（使用 `python -m pip install --no-index --target vendor mylib`，--no-index 禁止联网），"
-    "然后用 `python -c \"import sys; sys.path.insert(0, 'vendor'); "
-    "from mylib import greet; print(greet('ok'))\"` 验证安装成功，"
-    "最后运行 `python demo.py`（也需要带上 vendor 路径）确认输出 'hello, cm_eval!'。"
+    "目录中有 demo.py（纯标准库脚本，无任何第三方依赖）。"
+    "请为它创建一个隔离的虚拟环境：在目录中执行 `python -m venv .venv`，"
+    "然后用 `.venv\\Scripts\\python.exe demo.py` 运行脚本，"
+    "确认输出包含 'demo OK'。"
+    "（这是 Windows 环境，venv 的解释器在 .venv\\Scripts\\python.exe）"
 )
 
 
 def verify_t2(sb: Path) -> tuple[bool, str]:
-    vendor = sb / "vendor"
-    if not (vendor / "mylib").is_dir():
-        return False, "vendor/mylib 目录不存在（未安装或装错位置）"
+    venv_py = sb / ".venv" / "Scripts" / "python.exe"
+    if not venv_py.is_file():
+        return False, ".venv/Scripts/python.exe 不存在（未创建 venv 或路径不对）"
     r = subprocess.run(
-        [PY, "-c", "import sys; sys.path.insert(0, 'vendor'); "
-                   "from mylib import greet; print(greet('ok'))"],
-        cwd=str(sb), capture_output=True, text=True,
-        timeout=60, encoding="utf-8", errors="replace",
+        [str(venv_py), "demo.py"], cwd=str(sb), capture_output=True,
+        text=True, timeout=60, encoding="utf-8", errors="replace",
     )
-    if r.returncode == 0 and "hello, ok!" in (r.stdout or ""):
-        return True, f"vendor mylib import ok: {r.stdout.strip()!r}"
+    if r.returncode == 0 and "demo OK" in (r.stdout or ""):
+        return True, f"venv python run: {r.stdout.strip()!r}"
     return False, f"exit={r.returncode} stdout={r.stdout.strip()!r} stderr={r.stderr.strip()[-300:]!r}"
 
 
