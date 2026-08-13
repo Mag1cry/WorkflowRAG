@@ -46,9 +46,10 @@ class TestWorkflowManager:
         assert steps[1].name == "python"
         assert steps[1].type == "bashcall"
 
-    def test_solidify_and_prune(self):
+    def test_solidify_keeps_all_steps(self):
+        """solidify 不再自动剪枝（剪枝由 WorkflowJudge 负责），全部步骤保留。"""
         wf_id = "test_prune"
-        self.wfm.workflow_store.create_workflow(wf_id, "剪枝测试")
+        self.wfm.workflow_store.create_workflow(wf_id, "固化测试")
 
         steps_data = [
             ("s1", 0, "bashcall", "ls", "{'dir': '.'}", "files", "success"),
@@ -68,10 +69,35 @@ class TestWorkflowManager:
         assert wf.status == "SOLIDIFIED"
 
         steps = self.wfm.workflow_store.get_steps(wf_id)
-        pruned = [s for s in steps if s.is_pruned]
-        kept = [s for s in steps if not s.is_pruned]
-        assert len(pruned) == 2  # ls + edit_file v1
-        assert len(kept) == 2    # edit_file v2 + python
+        # 无 LLM 剪枝标记 → 全部保留
+        assert all(not s.is_pruned for s in steps)
+        assert wf.description != "(empty workflow)"
+
+    def test_solidify_with_manual_prune(self):
+        """手动剪枝标记（LLM 剪枝的工具操作）后 solidify，只固化保留步骤。"""
+        wf_id = "test_prune_manual"
+        self.wfm.workflow_store.create_workflow(wf_id, "手动剪枝测试")
+
+        steps_data = [
+            ("s1", 0, "bashcall", "ls", "{'dir': '.'}", "files", "success"),
+            ("s2", 1, "toolcall", "edit_file", "{'path': 'a.py', 'content': 'v2'}", "ok", "success"),
+        ]
+        for sid, idx, typ, name, args, result, status in steps_data:
+            self.wfm.workflow_store.add_step(
+                step_id=sid, workflow_id=wf_id, step_index=idx,
+                type=typ, name=name, arguments=args, result=result,
+                status=status, timestamp="2024-01-01",
+            )
+        # 模拟 LLM 审查剪枝 s1
+        self.wfm.prune_step("s1", True)
+        self.wfm.solidify(wf_id)
+
+        wf = self.wfm.workflow_store.get_workflow(wf_id)
+        steps = self.wfm.workflow_store.get_steps(wf_id)
+        assert steps[0].is_pruned is True
+        assert steps[1].is_pruned is False
+        assert "edit_file" in wf.description
+        assert "ls" not in wf.description
 
     def test_retrieve(self):
         wf_id = "test_retrieve"

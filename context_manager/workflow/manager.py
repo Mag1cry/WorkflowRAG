@@ -27,9 +27,21 @@ from ..persistence import (
     WorkflowIndexBase, FaissWorkflowIndex, MemoryWorkflowIndex,
     M3EEmbedding,
 )
-from . import pruner as pruner_mod
 from .injector import format_context
 from .visualizer import visualize_workflow as _visualize, visualize_comparison as _compare, build_case_study as _case_study
+
+
+def _generate_description(steps: list[dict]) -> str:
+    """从步骤序列生成描述文本（跳过已剪枝步骤）。"""
+    kept = [s for s in steps if not s.get("is_pruned")]
+    parts = []
+    for s in kept:
+        name = s.get("name", "?")
+        args = s.get("arguments", "")
+        if args and len(args) > 60:
+            args = args[:60] + "..."
+        parts.append(f"{name}({args})" if args else name)
+    return " → ".join(parts) if parts else "(empty workflow)"
 
 
 class WorkflowManager:
@@ -181,15 +193,16 @@ class WorkflowManager:
     # ── 固化（剪枝 + 索引）───────────────────────────
 
     def solidify(self, workflow_id: str) -> None:
-        """对 RAW Workflow 执行剪枝，生成 SOLIDIFIED Workflow。
+        """固化 Workflow：生成描述、写入索引、标记 SOLIDIFIED。
+
+        注意：剪枝由 WorkflowJudge（LLM 审查）负责，solidify 不再自动剪枝，
+        只读取现有 is_pruned 标记并固化。
 
         流程：
         1. 读取 Workflow 的所有 Step
-        2. 执行规则剪枝
-        3. 更新剪枝标记到存储
-        4. 生成 description
-        5. 生成 Embedding → 写入索引
-        6. 更新状态为 SOLIDIFIED
+        2. 生成 description（跳过 is_pruned 步骤）
+        3. 生成 Embedding → 写入索引
+        4. 更新状态为 SOLIDIFIED
         """
         wf = self.workflow_store.get_workflow(workflow_id)
         if wf is None:
@@ -201,12 +214,7 @@ class WorkflowManager:
             return
 
         step_dicts = [s.to_dict() for s in steps]
-        pruner_mod.prune(step_dicts)
-
-        for sd in step_dicts:
-            self.workflow_store.update_step_pruned(sd["step_id"], sd.get("is_pruned", False))
-
-        description = pruner_mod.generate_description(step_dicts)
+        description = _generate_description(step_dicts)
 
         self.workflow_store.update_description(workflow_id, description)
 

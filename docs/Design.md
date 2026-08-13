@@ -28,7 +28,7 @@ WorkflowManager 的目标：
 
 ### 2.3 剪枝即提炼
 
-原始步骤序列包含大量噪音（探索性调用、失败尝试、被覆盖的修改），通过剪枝策略提炼出干净的 SOLIDIFIED Workflow。
+原始步骤序列包含大量噪音（探索性调用、失败尝试、被覆盖的修改），由 LLM 审查 Agent（WorkflowJudge）通过工具操作提炼出干净的 SOLIDIFIED Workflow。
 
 ### 2.4 简洁优先
 
@@ -101,8 +101,8 @@ context_manager/
 │   ├── index.py                 # WorkflowIndexBase + FAISS + InMemory
 │   └── embedding.py             # M3EEmbedding
 └── workflow/                    # Workflow 管理（RAG API）
-    ├── manager.py               # WorkflowManager（提取、剪枝、检索、编辑）
-    ├── pruner.py                # 规则剪枝引擎
+    ├── manager.py               # WorkflowManager（提取、固化、检索、编辑）
+    ├── judge.py                 # WorkflowJudge（LLM 剪枝审查 Agent）
     └── injector.py              # 上下文注入
 ```
 
@@ -113,12 +113,12 @@ flowchart TB
     WS[WorkflowStore<br/>persistence/store.py]
     WI[WorkflowIndex<br/>persistence/index.py]
     EM[M3EEmbedding<br/>persistence/embedding.py]
-    PR[Pruner<br/>workflow/pruner.py]
+    J[WorkflowJudge<br/>workflow/judge.py]
     INJ[Injector<br/>workflow/injector.py]
     CP[LangGraph Checkpointer]
 
     Agent --> WM
-    WM --> PR
+    WM --> J
     WM --> INJ
     WM --> WS
     WM --> WI
@@ -185,18 +185,25 @@ CREATE TABLE steps (
 - 使用 FAISS IndexFlatIP（余弦相似度）
 - 检索返回整个 Workflow 结构
 
-### 5.4 Pruner
+### 5.4 WorkflowJudge（LLM 剪枝）
 
-剪枝引擎，将 RAW Workflow 转化为 SOLIDIFIED。
+位于 `workflow/judge.py`，LLM 审查 Agent，将 RAW Workflow 转化为 SOLIDIFIED。
 
-四种剪枝策略：
+LLM 只能通过 function call 工具操作 Workflow（防止幻觉直接输出修改内容）：
 
-| 策略 | 判断依据 | 示例 |
+- 查看：`review_summary` / `list_steps` / `get_steps` / `get_step` / `visualize`
+- 操作：`prune_step` / `batch_prune` / `update_step` / `add_step` / `remove_step` / `reorder_steps`
+- 元数据：`update_workflow_description`
+- 结束：`judge_done(report)` 提交审查报告
+
+审查标准：
+
+| 标准 | 判断依据 | 示例 |
 | --- | --- | --- |
-| **结果被覆盖** | 步骤 A 的输出被步骤 B 完全覆盖/修正 | `edit_file` 后又 `edit_file` 改同一文件 |
-| **出错但无关** | 步骤执行失败，但后续通过其他方式解决了 | `pip install` 失败，`conda install` 成功 |
-| **LLM 评判** | LLM 评估该步骤对最终结果无贡献 | 探索性 `read_file` 读了无关文件 |
-| **探索性调用** | 明显的探索/调试行为，非最终方案的一部分 | `ls`、`cat`、`print` 调试 |
+| **探索性调用** | 只读探索/导航命令，无产出价值 | `ls`、`cat`、`read_file` 读无关文件、`bash("cd && pwd")` |
+| **出错但无关** | 步骤执行失败，但后续通过其他方式解决了 | 路径失效导致失败，后续换正确路径成功 |
+| **结果被覆盖** | 同一目标被多次修改，只保留最后一次 | `edit_file` 后又 `edit_file` 改同一文件 |
+| **重复验证** | 同一验证命令多次成功运行，只保留最后一次 | 多次运行 `python main.py` 验证 |
 
 ### 5.5 LangGraph Checkpointer
 
@@ -234,14 +241,13 @@ flowchart TB
 ```mermaid
 flowchart TB
     A[RAW Workflow]
-    B[Pruner 分析步骤序列]
-    C[应用四种剪枝策略]
-    D[标记无用步骤<br/>is_pruned = true]
-    E[生成 Step 序列摘要 → description]
-    F[生成 Embedding → 写入 FAISS]
-    G[更新 WorkflowStore<br/>status = SOLIDIFIED]
+    B[WorkflowJudge 审查<br/>LLM 通过工具查看/剪枝/编辑]
+    C[标记无用步骤<br/>is_pruned = true]
+    D[生成 Step 序列摘要 → description]
+    E[生成 Embedding → 写入 FAISS]
+    F[更新 WorkflowStore<br/>status = SOLIDIFIED]
 
-    A --> B --> C --> D --> E --> F --> G
+    A --> B --> C --> D --> E --> F
 ```
 
 ### 6.3 检索
@@ -301,4 +307,3 @@ Step 4:  bash("python -c 'import module_x'")   → 验证通过
 - Workflow 合并/拆分
 - Workflow 可视化 UI
 - 自动标签生成（先用简单规则）
-- LLM 评判剪枝（先用规则剪枝）

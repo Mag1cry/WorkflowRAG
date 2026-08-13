@@ -39,7 +39,7 @@ python cli.py review <thread_id>   # 一键审查
 | **Workflow** | Agent 完成某项任务的有序 toolcall/bashcall 步骤序列 |
 | **Step** | 一次工具调用或命令执行，Workflow 的最小组成单元 |
 | **RAW** | 任务完成后从 Checkpoints 提取的原始步骤序列 |
-| **SOLIDIFIED** | 经过剪枝后的干净步骤序列，适合作为上下文注入 |
+| **SOLIDIFIED** | 经过 LLM 剪枝后的干净步骤序列，适合作为上下文注入 |
 
 ## 架构
 
@@ -51,8 +51,8 @@ context_manager/
 │   ├── index.py                 # WorkflowIndex (FAISS/InMemory)
 │   └── embedding.py             # M3EEmbedding
 └── workflow/                    # Workflow 管理（RAG API）
-    ├── manager.py               # WorkflowManager（提取、剪枝、检索、编辑）
-    ├── pruner.py                # 规则剪枝引擎
+    ├── manager.py               # WorkflowManager（提取、固化、检索、编辑）
+    ├── judge.py                 # WorkflowJudge（LLM 剪枝审查 Agent）
     └── injector.py              # 上下文注入（格式化 Workflow → Agent 上下文）
 ```
 
@@ -98,7 +98,7 @@ wfm = create_memory_manager()
 013ContextManager/
 ├── cli.py                         # 统一入口（demo / review）
 ├── context_manager/
-│   ├── __init__.py                # 导出 WorkflowManager、Workflow、Step
+│   ├── __init__.py                # 导出 WorkflowManager、WorkflowJudge、Workflow、Step
 │   ├── config.py                  # Settings
 │   ├── models.py                  # Workflow + Step 数据类
 │   ├── persistence/               # 持久化层
@@ -109,11 +109,13 @@ wfm = create_memory_manager()
 │   └── workflow/                  # Workflow 管理
 │       ├── __init__.py
 │       ├── manager.py             # WorkflowManager
-│       ├── pruner.py              # 规则剪枝引擎
+│       ├── judge.py               # WorkflowJudge（LLM 剪枝审查 Agent）
 │       └── injector.py            # 上下文注入
-├── tests/                         # 28 个测试
+├── eval/                          # 端到端评测（agent + 4 任务 + runner）
+├── tests/                         # 测试
 ├── docs/
-│   └── Design.md                  # 完整设计文档
+│   ├── Design.md                  # 完整设计文档
+│   └── EvalReport.md              # 省 Token 端到端评测报告
 └── .gitignore
 ```
 
@@ -133,15 +135,34 @@ python cli.py review <langgraph_thread_id>
 
 1. 从 LangGraph Thread 提取 RAW Workflow
 2. 展示步骤摘要
-3. 执行规则剪枝（探索性调用、结果被覆盖、出错但无关）
+3. 执行 LLM 剪枝（WorkflowJudge 通过工具审查：探索性调用、失败尝试、结果被覆盖等）
 4. 生成 SOLIDIFIED Workflow
 5. 写入 FAISS 索引
 
-## 剪枝策略
+## LLM 剪枝（WorkflowJudge）
 
-| 策略 | 判断依据 | 示例 |
-| --- | --- | --- |
-| **结果被覆盖** | 步骤 A 的输出被步骤 B 完全覆盖/修正 | `edit_file` 后又 `edit_file` 改同一文件 |
-| **出错但无关** | 步骤执行失败，但后续通过其他方式解决了 | `pip install` 失败，`conda install` 成功 |
-| **探索性调用** | 明显的探索/调试行为 | `ls`、`cat`、`read_file` 读无关文件 |
-| **LLM 评判** | LLM 评估该步骤对最终结果无贡献 | 保留接口，第一版不实现 |
+剪枝由 LLM 审查 Agent 完成，它只能通过 **function call 工具** 操作 Workflow，不能直接输出修改内容（防止幻觉）：
+
+| 类别 | 工具 |
+| --- | --- |
+| 查看 | `review_summary` `list_steps` `get_steps` `get_step` `visualize` |
+| 操作 | `prune_step` `batch_prune` `update_step` `add_step` `remove_step` `reorder_steps` |
+| 元数据 | `update_workflow_description` |
+| 结束 | `judge_done(report)`（提交审查报告） |
+
+```python
+from context_manager.workflow.judge import WorkflowJudge
+
+judge = WorkflowJudge(wfm, llm)   # llm: 支持 function calling 的 ChatOpenAI
+result = judge.judge(wf_id)       # 剪枝标记写入 store，返回统计与审查报告
+```
+
+LLM 审查标准：
+
+| 标准 | 说明 |
+| --- | --- |
+| **探索性调用** | ls/dir/cat/read_file 读无关文件、pwd 等导航命令（含藏在 bash 参数内的） |
+| **出错但无关** | 步骤执行失败，但后续通过其他方式解决了问题 |
+| **结果被覆盖** | 同一文件/目标被多次修改，只保留最后一次有效修改 |
+| **重复验证** | 同一验证命令多次成功运行，只保留最后一次 |
+| **保留** | 有效的写操作、成功且关键的验证运行 |

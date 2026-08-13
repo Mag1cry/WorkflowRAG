@@ -52,7 +52,15 @@ def cmd_demo(args) -> None:
     for s in fake_steps:
         print(f"  [ ] [{s['type']:8s}] {s['name']}({s['arguments'][:40]}...)")
 
-    print("\n=== 执行剪枝 ===")
+    print("\n=== LLM 剪枝（审查工具操作）===")
+    print("  [x] read_file   → 探索性调用，剪枝")
+    wfm.prune_step("s1", True)
+    print("  [x] ls          → 探索性调用，剪枝")
+    wfm.prune_step("s2", True)
+    print("  [x] edit_file v1→ 结果被 v2 覆盖，剪枝")
+    wfm.prune_step("s3", True)
+
+    print("\n=== 执行固化 (solidify) ===")
     wfm.solidify(wf_id)
 
     wf = wfm.get_workflow(wf_id)
@@ -98,7 +106,7 @@ def cmd_review(args) -> None:
         marker = " "
         print(f"  [{marker}] [{s.type:8s}] {s.name}")
 
-    print("\n执行规则剪枝...")
+    print("\n执行固化 (solidify)...")
     wfm.solidify(wf_id)
 
     wf = wfm.get_workflow(wf_id)

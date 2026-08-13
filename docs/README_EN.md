@@ -31,7 +31,7 @@ An agent seeing a workflow knows **exactly what steps to take** — not just a v
 flowchart TB
     Agent --> WM[WorkflowManager]
     WM --> Extract[extract_workflow<br/>from Checkpoints]
-    WM --> Pruner[Pruner<br/>prune useless steps]
+    WM --> Judge[WorkflowJudge<br/>LLM prunes via tools]
     WM --> Store[WorkflowStore<br/>SQLite]
     WM --> Index[WorkflowIndex<br/>FAISS]
     WM --> Embed[Embedding<br/>M3E]
@@ -44,8 +44,9 @@ flowchart TB
 ```
 1. Agent completes a task (LangGraph Thread)
 2. extract_workflow(thread_id)  →  parse messages into Step[], store as RAW
-3. solidify(workflow_id)        →  prune noise → generate description → index via FAISS → status = SOLIDIFIED
-4. retrieve(query)              →  embed query → FAISS search → return SOLIDIFIED workflow with steps
+3. judge.judge(workflow_id)     →  LLM review agent prunes steps via function calls
+4. solidify(workflow_id)        →  generate description → index via FAISS → status = SOLIDIFIED
+5. retrieve(query)              →  embed query → FAISS search → return SOLIDIFIED workflow with steps
 ```
 
 ---
@@ -120,23 +121,25 @@ Step = {
   duration_ms: int,
   timestamp: datetime,
   step_index: int,
-  is_pruned: bool,        # marked by Pruner
+  is_pruned: bool,        # marked by WorkflowJudge (LLM)
   error_message: str | null,
 }
 ```
 
 ---
 
-## Pruning Strategies
+## LLM Pruning (WorkflowJudge)
 
-Pruning is the core transformation — converting RAW workflows into high-quality SOLIDIFIED ones.
+Pruning is done by an LLM review agent (`workflow/judge.py`) that operates the workflow **only through function-call tools** (preventing hallucinated edits):
 
-| Strategy | Heuristic | Example |
-|----------|-----------|---------|
-| **Result overwritten** | A later write to the same target supersedes earlier ones | `edit_file(a.py)` then `edit_file(a.py)` again — first is pruned |
-| **Failed & irrelevant** | A step failed but the task was completed via another path | `pip install` fails, `conda install` succeeds |
-| **Exploratory call** | Read-only exploration/debugging that doesn't contribute | `ls`, `cat`, `read_file` of unrelated files |
-| **LLM judgement** | LLM evaluates step contribution | Interface reserved, not implemented in v1 |
+| Category | Tools |
+|----------|-------|
+| View | `review_summary` `list_steps` `get_steps` `get_step` `visualize` |
+| Edit | `prune_step` `batch_prune` `update_step` `add_step` `remove_step` `reorder_steps` |
+| Metadata | `update_workflow_description` |
+| Finish | `judge_done(report)` |
+
+Review criteria: exploratory calls (incl. inside `bash` args), failed-and-bypassed steps, overwritten results, repeated verifications are pruned; effective writes and successful verifications are kept.
 
 ---
 
@@ -146,24 +149,18 @@ Pruning is the core transformation — converting RAW workflows into high-qualit
 013ContextManager/
 ├── cli.py                         # CLI entry point
 ├── context_manager/
-│   ├── __init__.py                # Exports WorkflowManager
+│   ├── __init__.py                # Exports WorkflowManager, WorkflowJudge
 │   ├── config.py                  # Settings dataclass
-│   ├── embedding.py               # M3EEmbedding
-│   ├── manager.py                 # WorkflowManager
-│   ├── pruner.py                  # Pruner engine
-│   ├── storage/
-│   │   ├── base.py                # WorkflowStoreBase ABC
-│   │   ├── in_memory.py           # MemoryWorkflowStore
-│   │   └── sqlite.py              # SQLiteWorkflowStore
-│   └── index/
-│       ├── base.py                # WorkflowIndexBase ABC
-│       ├── in_memory.py           # MemoryWorkflowIndex
-│       └── faiss_index.py         # FaissWorkflowIndex
-├── tests/                         # 22 tests
-├── docs/
-│   ├── DESIGN.md                  # Full design document
-│   └── README_EN.md               # This file
-└── requirements.txt
+│   ├── models.py                  # Workflow + Step dataclasses
+│   ├── persistence/
+│   │   ├── store.py               # WorkflowStoreBase + SQLite + InMemory
+│   │   ├── index.py               # WorkflowIndexBase + FAISS + InMemory
+│   │   └── embedding.py           # M3EEmbedding
+│   └── workflow/
+│       ├── manager.py             # WorkflowManager
+│       ├── judge.py               # WorkflowJudge (LLM pruning agent)
+│       └── injector.py            # Context injection formatting
+└── eval/                          # End-to-end token-saving evaluation
 ```
 
 ---
@@ -171,7 +168,7 @@ Pruning is the core transformation — converting RAW workflows into high-qualit
 ## Running Tests
 
 ```bash
-pytest tests/ -v    # 22 tests
+pytest tests/ -v    # 42 tests
 ```
 
 ---
