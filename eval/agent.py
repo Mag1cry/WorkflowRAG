@@ -94,21 +94,42 @@ def make_tools(sandbox: str) -> list:
 
         参数必须是单条命令；禁止访问 sandbox 目录之外的路径。
         python 解析为评测环境（agent conda env）的解释器。
+
+        注意：输出通过临时文件重定向读取（不使用管道捕获），
+        避免沙箱环境下长输出命令（如 pip install）的管道阻塞。
         """
         env = dict(os.environ)
         py_dir = str(Path(sys.executable).resolve().parent)
         env["PATH"] = py_dir + os.pathsep + env.get("PATH", "")
+        # pip 等工具的临时目录可能落在沙箱不可写区（如 %TEMP%\dsh-*），
+        # 统一重定向到 sandbox 内的可写目录
+        tmp_dir = sb / ".cm_tmp"
+        tmp_dir.mkdir(exist_ok=True)
+        env["TEMP"] = env["TMP"] = env["TMPDIR"] = str(tmp_dir)
+        out_file = sb / f"__cm_out_{os.getpid()}.tmp"
+        err_file = sb / f"__cm_err_{os.getpid()}.tmp"
         try:
-            r = subprocess.run(
-                command, shell=True, cwd=str(sb), capture_output=True,
-                text=True, timeout=180, encoding="utf-8", errors="replace",
-                env=env,
-            )
-        except subprocess.TimeoutExpired:
+            with open(out_file, "w", encoding="utf-8", errors="replace") as fo, \
+                 open(err_file, "w", encoding="utf-8", errors="replace") as fe:
+                try:
+                    r = subprocess.run(
+                        command, shell=True, cwd=str(sb), stdout=fo, stderr=fe,
+                        timeout=180, env=env,
+                    )
+                    code = r.returncode
+                except subprocess.TimeoutExpired:
+                    code = -1
+            out = out_file.read_text(encoding="utf-8", errors="replace").strip()[-4000:]
+            err = err_file.read_text(encoding="utf-8", errors="replace").strip()[-2000:]
+        finally:
+            for f in (out_file, err_file):
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+        if code == -1:
             return "exit_code=-1\nError: 命令超时（>180s）"
-        out = (r.stdout or "").strip()[-4000:]
-        err = (r.stderr or "").strip()[-2000:]
-        parts = [f"exit_code={r.returncode}"]
+        parts = [f"exit_code={code}"]
         if out:
             parts.append(out)
         if err:

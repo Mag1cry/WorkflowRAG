@@ -53,39 +53,47 @@ def verify_t1(sb: Path) -> tuple[bool, str]:
     return False, f"exit={r.returncode} stdout={r.stdout.strip()!r} stderr={r.stderr.strip()[-300:]!r}"
 
 
-# ── T2: 安装依赖并验证 ────────────────────────────────
+# ── T2: 安装本地依赖包并验证 ─────────────────────────
 
 
 def init_t2(sb: Path) -> None:
-    (sb / "demo.py").write_text(
-        "import requests\n"
-        "r = requests.get('https://httpbin.org/get', timeout=10)\n"
-        "print('status:', r.status_code)\n",
+    # 本地包：纯 Python，无任何第三方依赖（离线可装）
+    (sb / "mylib").mkdir()
+    (sb / "mylib" / "__init__.py").write_text(
+        "def greet(name: str) -> str:\n"
+        "    return f'hello, {name}!'\n",
         encoding="utf-8",
     )
-    (sb / "requirements.txt").write_text("requests==2.32.3\n", encoding="utf-8")
+    (sb / "demo.py").write_text(
+        "from mylib import greet\n"
+        "print(greet('cm_eval'))\n",
+        encoding="utf-8",
+    )
+    (sb / "requirements.txt").write_text("mylib\n", encoding="utf-8")
 
 
 T2_PROMPT = (
-    "目录中有 demo.py 和 requirements.txt。demo.py 依赖 requests 库但当前环境没有安装。"
-    "请把依赖安装到本目录的 vendor/ 子目录（使用 `python -m pip install -r requirements.txt "
-    "--target vendor --quiet`），然后用 `python -c \"import sys; sys.path.insert(0, 'vendor'); "
-    "import requests; print(requests.__version__)\"` 验证安装成功。"
+    "目录中有本地包 mylib/（纯 Python 包）、demo.py 和 requirements.txt。"
+    "demo.py 依赖 mylib 但尚未安装。请把 mylib 安装到本目录的 vendor/ 子目录"
+    "（使用 `python -m pip install --no-index --target vendor mylib`，--no-index 禁止联网），"
+    "然后用 `python -c \"import sys; sys.path.insert(0, 'vendor'); "
+    "from mylib import greet; print(greet('ok'))\"` 验证安装成功，"
+    "最后运行 `python demo.py`（也需要带上 vendor 路径）确认输出 'hello, cm_eval!'。"
 )
 
 
 def verify_t2(sb: Path) -> tuple[bool, str]:
     vendor = sb / "vendor"
-    if not (vendor / "requests").is_dir():
-        return False, "vendor/requests 目录不存在（未安装或装错位置）"
+    if not (vendor / "mylib").is_dir():
+        return False, "vendor/mylib 目录不存在（未安装或装错位置）"
     r = subprocess.run(
         [PY, "-c", "import sys; sys.path.insert(0, 'vendor'); "
-                   "import requests; print(requests.__version__)"],
+                   "from mylib import greet; print(greet('ok'))"],
         cwd=str(sb), capture_output=True, text=True,
         timeout=60, encoding="utf-8", errors="replace",
     )
-    if r.returncode == 0 and "2.32.3" in (r.stdout or ""):
-        return True, f"vendor requests={r.stdout.strip()!r}"
+    if r.returncode == 0 and "hello, ok!" in (r.stdout or ""):
+        return True, f"vendor mylib import ok: {r.stdout.strip()!r}"
     return False, f"exit={r.returncode} stdout={r.stdout.strip()!r} stderr={r.stderr.strip()[-300:]!r}"
 
 
