@@ -1,18 +1,14 @@
 """LLM 剪枝 — WorkflowJudge：审查 LLM 通过 function call 操作 Workflow 步骤。
 
-设计初衷（见 docs/Design.md "审查 LLM 工具集"）：
-审查 LLM 只能通过 toolcall 修改 Workflow，不能直接输出修改后的内容（防止幻觉）。
-
-工具集（全部来自 WorkflowManager 的公开方法）:
-- 查看:   review_summary / list_steps / get_step
-- 操作:   prune_step / batch_prune / update_step / add_step / remove_step
-          / reorder_steps / update_workflow_description
-- 结束:   judge_done(report)
+设计：
+- 工具集来自 WorkflowManager.get_tool_schemas()（workflow/tools.py 自动生成），
+  审查 LLM 只能通过工具修改 Workflow，不能直接输出修改后的内容（防止幻觉）。
+- judge() 驱动 LLM 循环：查看 → 剪枝 → 编辑 → judge_done 提交报告。
 
 用法:
     from context_manager.workflow.judge import WorkflowJudge
 
-    judge = WorkflowJudge(manager, llm)
+    judge = WorkflowJudge(manager, llm)   # llm: 支持 function calling 的 ChatOpenAI
     result = judge.judge("workflow_id")
     # result = {"tool_calls": [...], "total_tokens": int, "report": str, ...}
 """
@@ -22,7 +18,8 @@ from __future__ import annotations
 import re
 
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field, create_model
 
 from .manager import WorkflowManager
 
@@ -53,6 +50,26 @@ SYSTEM_PROMPT = """你是 Workflow 审查员，负责把 RAW Workflow 修剪为�
 """
 
 
+def _args_model(parameters: dict) -> type[BaseModel]:
+    """OpenAI schema 参数 → pydantic 模型（用于 StructuredTool 校验）。"""
+    fields: dict[str, tuple] = {}
+    required = set(parameters.get("required", []))
+    for pname, spec in parameters.get("properties", {}).items():
+        if spec.get("type") == "array":
+            inner = spec.get("items", {}).get("type", "string")
+            t = list[str] if inner == "string" else list
+        else:
+            t = {"string": str, "boolean": bool, "integer": int}.get(
+                spec.get("type"), str
+            )
+        desc = spec.get("description", pname)
+        if pname in required:
+            fields[pname] = (t, Field(description=desc))
+        else:
+            fields[pname] = (t | None, Field(description=desc, default=None))
+    return create_model("ToolArgs", **fields)
+
+
 class WorkflowJudge:
     """让 LLM 通过工具审查并修剪 Workflow 的剪枝器。"""
 
@@ -61,130 +78,42 @@ class WorkflowJudge:
         self.llm = llm
         self.tools = self._build_tools()
 
-    # ── 工具构建 ────────────────────────────────────
+    # ── 工具构建（复用 manager.get_tool_schemas）──────
 
     def _build_tools(self) -> list:
-        m = self.manager
-
-        @tool
-        def review_summary(workflow_id: str) -> str:
-            """查看 Workflow 审查概况（步骤总数、保留/剪枝数、类型分布）。"""
-            return m.review_summary(workflow_id)
-
-        @tool
-        def list_steps(workflow_id: str) -> str:
-            """列出 Workflow 所有步骤的 step_id/索引/类型/名称/状态（每行一个，含参数与结果摘要）。"""
-            wf = m.get_workflow(workflow_id)
-            if wf is None:
-                return f"Workflow not found: {workflow_id}"
-            lines = [f"Workflow: {wf.name} ({wf.status}) 共 {len(wf.steps)} 步"]
-            for s in wf.steps:
-                args = s.arguments
-                if len(args) > 50:
-                    args = args[:50] + "..."
-                result = (s.result or "")[:60].replace("\n", " ")
-                if len(s.result or "") > 60:
-                    result += "..."
-                mark = "[PRUNED]" if s.is_pruned else "[keep]"
-                lines.append(
-                    f"{mark} step_id={s.step_id} index={s.step_index} "
-                    f"type={s.type} name={s.name} status={s.status} "
-                    f"args={args!r} result={result!r}"
+        tools = []
+        for schema in self.manager.get_tool_schemas():
+            name = schema["name"]
+            tools.append(
+                StructuredTool.from_function(
+                    name=name,
+                    description=schema["description"],
+                    args_schema=_args_model(schema["parameters"]),
+                    func=self._make_wrapper(name),
                 )
-            return "\n".join(lines)
+            )
 
-        @tool
-        def get_steps(workflow_id: str, indices: list[int]) -> str:
-            """批量查看指定索引步骤的详情（参数、结果、错误）。一次最多 5 个。"""
-            wf = m.get_workflow(workflow_id)
-            if wf is None:
-                return f"Workflow not found: {workflow_id}"
-            out = []
-            for idx in indices[:5]:
-                for s in wf.steps:
-                    if s.step_index == idx:
-                        out.append(
-                            f"--- index={idx} step_id={s.step_id} [{s.type}] {s.name} "
-                            f"status={s.status} pruned={s.is_pruned}\n"
-                            f"    args: {s.arguments}\n"
-                            f"    result: {s.result[:200]}\n"
-                            f"    error: {s.error_message[:100]}"
-                        )
-                        break
-            return "\n".join(out) if out else f"indices not found: {indices}"
-
-        @tool
-        def get_step(workflow_id: str, step_index: int) -> str:
-            """查看指定索引步骤的完整信息（参数、结果、错误）。
-
-            注意参数名是 workflow_id（Workflow 的 ID），step_index 是步骤索引（从 0 开始）。
-            """
-            return m.get_step(workflow_id, step_index)
-
-        @tool
-        def visualize(workflow_id: str, show_pruned: bool = True) -> str:
-            """可视化 Workflow 步骤序列（含剪枝原因标注，已去除颜色码）。"""
-            text = m.visualize(workflow_id, show_pruned=show_pruned)
-            return _ANSI_RE.sub("", text)
-
-        @tool
-        def prune_step(step_id: str, is_pruned: bool) -> str:
-            """标记/取消标记某个步骤为已剪枝（用 step_id 操作）。"""
-            ok = m.prune_step(step_id, is_pruned)
-            return f"ok: step {step_id} pruned={is_pruned}" if ok else f"failed: {step_id}"
-
-        @tool
-        def batch_prune(workflow_id: str, step_ids: list[str]) -> str:
-            """批量标记多个步骤为已剪枝。"""
-            return m.batch_prune(workflow_id, step_ids)
-
-        @tool
-        def update_step(step_id: str, name: str = None, arguments: str = None,
-                        result: str = None, status: str = None,
-                        is_pruned: bool = None, type: str = None,
-                        error_message: str = None) -> str:
-            """更新某个步骤的字段（只传需要修改的字段）。可用于修正参数摘要、状态等。"""
-            kwargs = {k: v for k, v in {
-                "name": name, "arguments": arguments, "result": result,
-                "status": status, "is_pruned": is_pruned, "type": type,
-                "error_message": error_message,
-            }.items() if v is not None}
-            if not kwargs:
-                return "no fields to update"
-            m.update_step(step_id, **kwargs)
-            return f"ok: step {step_id} updated"
-
-        @tool
-        def add_step(workflow_id: str, after_index: int, type: str, name: str,
-                     arguments: str = "", result: str = "", status: str = "success") -> str:
-            """在指定位置后插入一个新步骤。"""
-            return m.add_step(workflow_id, after_index, type, name,
-                              arguments, result, status)
-
-        @tool
-        def remove_step(step_id: str) -> str:
-            """删除某个步骤。"""
-            return m.remove_step(step_id)
-
-        @tool
-        def reorder_steps(workflow_id: str, step_id_order: list[str]) -> str:
-            """按给定顺序重新排列步骤（step_id 列表）。"""
-            return m.reorder_steps(workflow_id, step_id_order)
-
-        @tool
-        def update_workflow_description(workflow_id: str, description: str) -> str:
-            """更新 Workflow 描述（用于检索索引）。"""
-            ok = m.update_workflow_description(workflow_id, description)
-            return f"ok: description updated" if ok else f"failed: {workflow_id}"
-
-        @tool
+        @StructuredTool.from_function
         def judge_done(report: str) -> str:
             """审查完成，提交最终报告（说明剪了什么、为什么、保留了什么）。"""
             return f"JUDGE_DONE: {report}"
 
-        return [review_summary, list_steps, get_steps, get_step, visualize,
-                prune_step, batch_prune, update_step, add_step, remove_step,
-                reorder_steps, update_workflow_description, judge_done]
+        tools.append(judge_done)
+        return tools
+
+    def _make_wrapper(self, name: str):
+        """包装 manager 方法：执行 + 异常捕获 + 结果字符串化 + ANSI 清理。"""
+        fn = getattr(self.manager, name)
+
+        def wrapper(**kwargs) -> str:
+            try:
+                result = fn(**kwargs)
+            except Exception as e:  # noqa: BLE001
+                return f"Error: {type(e).__name__}: {e}"
+            return _ANSI_RE.sub("", str(result))
+
+        wrapper.__name__ = name
+        return wrapper
 
     # ── 执行 ────────────────────────────────────────
 

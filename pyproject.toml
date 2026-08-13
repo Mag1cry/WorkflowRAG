@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "context-manager"
+version = "0.8.0"
+description = "WorkflowManager — 基于 LangGraph 的 Workflow 提取、LLM 剪枝与上下文复用引擎（context = workflow）"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Magic" }]
+keywords = ["langgraph", "agent", "workflow", "context", "rag", "llm"]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.25",
+    "scikit-learn>=1.5",
+    "torch>=2.0",
+    "transformers>=4.40",
+    "faiss-cpu>=1.8",
+    "langgraph>=0.2",
+    "langchain-core>=0.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "langchain-openai>=0.3",
+]
+
+[tool.setuptools]
+packages = [
+    "context_manager",
+    "context_manager.persistence",
+    "context_manager.workflow",
+]

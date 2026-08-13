@@ -101,9 +101,11 @@ context_manager/
 │   ├── index.py                 # WorkflowIndexBase + FAISS + InMemory
 │   └── embedding.py             # M3EEmbedding
 └── workflow/                    # Workflow 管理（RAG API）
-    ├── manager.py               # WorkflowManager（提取、固化、检索、编辑）
-    ├── judge.py                 # WorkflowJudge（LLM 剪枝审查 Agent）
-    └── injector.py              # 上下文注入
+    ├── manager.py               # WorkflowManager（生命周期：提取、检索、注入、展示）
+    ├── tools.py                 # ReviewToolsMixin（17 个审查工具 + 自动 schema）
+    ├── judge.py                 # WorkflowJudge（LLM 剪枝审查 Agent，复用 tools）
+    ├── injector.py              # 上下文注入
+    └── visualizer.py            # ANSI 可视化
 ```
 
 ```mermaid
@@ -113,12 +115,14 @@ flowchart TB
     WS[WorkflowStore<br/>persistence/store.py]
     WI[WorkflowIndex<br/>persistence/index.py]
     EM[M3EEmbedding<br/>persistence/embedding.py]
+    T[ReviewToolsMixin<br/>workflow/tools.py]
     J[WorkflowJudge<br/>workflow/judge.py]
     INJ[Injector<br/>workflow/injector.py]
     CP[LangGraph Checkpointer]
 
     Agent --> WM
-    WM --> J
+    WM --> T
+    T --> J
     WM --> INJ
     WM --> WS
     WM --> WI
@@ -134,13 +138,16 @@ flowchart TB
 
 位于 `workflow/manager.py`，统一入口，管理 Workflow 生命周期。
 
-职责：
+职责（生命周期部分）：
 
 - `extract_workflow(thread_id)` → 任务完成后从 Checkpoints 提取步骤
-- `solidify(workflow_id)` → 对 RAW workflow 执行剪枝，生成 SOLIDIFIED
 - `retrieve(query, top_k)` → 检索相关 Workflow，返回 `Workflow` 对象列表
 - `format_context(workflow)` → 将 Workflow 格式化为 Agent 上下文注入文本
-- 审查 LLM 工具：`get_workflow`、`list_workflows`、`prune_step`、`update_workflow_description`、`delete_workflow`
+- `visualize_comparison` / `run_case_study` → 展示
+
+审查工具（`get_workflow`、`list_workflows`、`prune_step`、`update_step`、`solidify` 等 17 个）
+由 `workflow/tools.py` 的 `ReviewToolsMixin` 提供，WorkflowManager 继承组合，对外 API 统一。
+`get_tool_schemas()` 用 `inspect` 从方法签名自动生成 OpenAI 兼容 function call schema。
 
 ### 5.2 WorkflowStore
 
@@ -189,11 +196,13 @@ CREATE TABLE steps (
 
 位于 `workflow/judge.py`，LLM 审查 Agent，将 RAW Workflow 转化为 SOLIDIFIED。
 
+工具集来自 `workflow/tools.py`（WorkflowManager.get_tool_schemas 自动生成），
 LLM 只能通过 function call 工具操作 Workflow（防止幻觉直接输出修改内容）：
 
-- 查看：`review_summary` / `list_steps` / `get_steps` / `get_step` / `visualize`
+- 查看：`get_workflow` / `list_workflows` / `get_step` / `list_steps` / `get_steps` / `visualize`
 - 操作：`prune_step` / `batch_prune` / `update_step` / `add_step` / `remove_step` / `reorder_steps`
-- 元数据：`update_workflow_description`
+- 元数据：`update_workflow_name` / `update_workflow_description`
+- 生命周期：`solidify` / `delete_workflow` / `review_summary`
 - 结束：`judge_done(report)` 提交审查报告
 
 审查标准：

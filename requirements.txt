@@ -1,7 +1,0 @@
-numpy>=1.25
-scikit-learn>=1.5
-torch>=2.0
-transformers>=4.40
-faiss-cpu>=1.8
-langgraph>=0.2
-langchain-core>=0.3

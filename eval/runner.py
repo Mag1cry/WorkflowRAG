@@ -1,11 +1,12 @@
-"""eval_runner — 端到端省 Token 评测主脚本。
+"""runner — 端到端省 Token 评测主脚本。
 
 基线模式:    agent 无参考直接跑任务 N 次
-注入模式:    第 1 次跑 → extract_workflow → solidify → retrieve → 注入上下文 → 再跑 N 次
+注入模式:    第 1 次跑 → extract_workflow → WorkflowJudge(LLM 剪枝) → solidify
+             → retrieve → 注入上下文 → 再跑 N 次
 
 用法（在项目根目录运行）:
-    DEEPSEEK_API_KEY=sk-xxx python eval/eval_runner.py --task T1 --mode both --runs 3
-    DEEPSEEK_API_KEY=sk-xxx python eval/eval_runner.py --task all --mode both --runs 3
+    python eval/runner.py --task T1 --mode both --runs 3
+    python eval/runner.py --task all --mode both --runs 3
 
 输出: eval/results/<task>_<mode>.json + 终端对比表
 """

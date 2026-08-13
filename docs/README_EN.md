@@ -15,7 +15,7 @@ Instead of treating agent execution history as raw message dumps, WorkflowManage
 ## Why Workflow?
 
 | Aspect | Traditional Skill | Workflow |
-|--------|-------------------|----------|
+| -------- | ------------------- | ---------- |
 | **Nature** | Abstract description by the agent | Real, executable step sequence |
 | **Granularity** | High-level summary | Step-by-step tool/bash calls |
 | **Reference value** | Conceptual guide | Directly reusable pattern |
@@ -54,7 +54,7 @@ flowchart TB
 ## Quick Start
 
 ```bash
-pip install -r requirements.txt
+pip install -e .
 python cli.py demo
 ```
 
@@ -102,7 +102,7 @@ wfm = create_memory_manager()
 ## Core Concepts
 
 | Concept | Description |
-|---------|-------------|
+| --------- | ------------- |
 | **Workflow** | Ordered sequence of toolcall/bashcall steps (replaces Episode) |
 | **Step** | A single tool call or bash command execution |
 | **RAW** | Raw step sequence extracted from checkpoints, including noise |
@@ -133,7 +133,7 @@ Step = {
 Pruning is done by an LLM review agent (`workflow/judge.py`) that operates the workflow **only through function-call tools** (preventing hallucinated edits):
 
 | Category | Tools |
-|----------|-------|
+| ---------- | ------- |
 | View | `review_summary` `list_steps` `get_steps` `get_step` `visualize` |
 | Edit | `prune_step` `batch_prune` `update_step` `add_step` `remove_step` `reorder_steps` |
 | Metadata | `update_workflow_description` |
@@ -157,10 +157,17 @@ Review criteria: exploratory calls (incl. inside `bash` args), failed-and-bypass
 │   │   ├── index.py               # WorkflowIndexBase + FAISS + InMemory
 │   │   └── embedding.py           # M3EEmbedding
 │   └── workflow/
-│       ├── manager.py             # WorkflowManager
-│       ├── judge.py               # WorkflowJudge (LLM pruning agent)
-│       └── injector.py            # Context injection formatting
-└── eval/                          # End-to-end token-saving evaluation
+│       ├── manager.py             # WorkflowManager (lifecycle: extract/retrieve/inject)
+│       ├── tools.py               # ReviewToolsMixin (17 tools + auto-generated schemas)
+│       ├── judge.py               # WorkflowJudge (LLM pruning agent, reuses tools)
+│       ├── injector.py            # Context injection formatting
+│       └── visualizer.py          # ANSI visualization
+├── eval/                          # End-to-end token-saving evaluation
+│   ├── agent.py                   # Demo agent (bash/read/write/list + stats)
+│   ├── tasks.py                   # 4 benchmark tasks
+│   ├── runner.py                  # Eval runner (baseline vs LLM-pruned injection)
+│   └── report.py                  # Results → Markdown report
+└── pyproject.toml                 # Packaging & dependencies
 ```
 
 ---
@@ -168,7 +175,7 @@ Review criteria: exploratory calls (incl. inside `bash` args), failed-and-bypass
 ## Running Tests
 
 ```bash
-pytest tests/ -v    # 42 tests
+pytest tests/ -v    # 36 tests
 ```
 
 ---
@@ -213,7 +220,6 @@ CREATE TABLE steps (
 - Workflow merge/split
 - Workflow visualization UI
 - Auto tag generation (simple rules for now)
-- LLM-judged pruning (rule-based for now)
 
 ---
 
