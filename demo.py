@@ -1,6 +1,7 @@
 """完整样例 — WorkflowManager 端到端演示。
 
-展示完整闭环：真实 Agent 执行任务 → 提取 → LLM 剪枝 → 固化 → 检索 → 注入复用 → 对比省 token。
+展示完整闭环：真实 Agent 执行任务 → 提取 → LLM 剪枝 → 固化 → 检索
+→ 注入复用 → 对比省 token。
 
 用法:
     python demo.py                # 完整流程（需要 DEEPSEEK_API_KEY，真实调用 LLM）
@@ -73,10 +74,12 @@ def _fresh_sandbox(tag: str) -> Path:
 
 
 def _print_stats(label: str, stats: dict, elapsed_s: float) -> None:
-    print(f"  {label}: 工具调用 {stats['tool_call_count']} 次 | "
-          f"token {stats['total_tokens']} (prompt {stats['prompt_tokens']} + "
-          f"completion {stats['completion_tokens']}) | {stats['steps']} 轮 | "
-          f"耗时 {elapsed_s:.1f}s")
+    print(
+        f"  {label}: 工具调用 {stats['tool_call_count']} 次 | "
+        f"token {stats['total_tokens']} (prompt {stats['prompt_tokens']} + "
+        f"completion {stats['completion_tokens']}) | {stats['steps']} 轮 | "
+        f"耗时 {elapsed_s:.1f}s"
+    )
     for tc in stats["tool_calls"]:
         args = str(tc["args"])[:70]
         print(f"      → {tc['name']}({args}...)")
@@ -95,8 +98,10 @@ def run_full() -> int:
     """完整流程（真实 LLM）。"""
     key = _resolve_api_key()
     if not key:
-        print("错误: 完整样例需要 DEEPSEEK_API_KEY。\n"
-              "  提示: 可用 `python demo.py --offline` 运行离线演示。")
+        print(
+            "错误: 完整样例需要 DEEPSEEK_API_KEY。\n"
+            "  提示: 可用 `python demo.py --offline` 运行离线演示。"
+        )
         return 1
 
     llm = _build_llm()
@@ -117,15 +122,19 @@ def run_full() -> int:
     if DB_PATH.exists():
         DB_PATH.unlink()
     embedding = M3EEmbedding()
-    wfm = WorkflowManager(settings=settings, checkpointer=checkpointer, embedding=embedding)
+    wfm = WorkflowManager(
+        settings=settings, checkpointer=checkpointer, embedding=embedding
+    )
     wf_id = wfm.extract_workflow("demo_thread_1", name="修复 Python 导入错误")
     _show_workflow(wfm, wf_id, "RAW Workflow")
 
     _banner("3. WorkflowJudge — LLM 审查剪枝")
     judge = WorkflowJudge(wfm, llm)
     judge_result = judge.judge(wf_id)
-    print(f"  审查过程: {len(judge_result['tool_calls'])} 次工具调用 | "
-          f"{judge_result['total_tokens']} tokens | {judge_result['rounds']} 轮")
+    print(
+        f"  审查过程: {len(judge_result['tool_calls'])} 次工具调用 | "
+        f"{judge_result['total_tokens']} tokens | {judge_result['rounds']} 轮"
+    )
     for tc in judge_result["tool_calls"]:
         args = str(tc["args"])[:70]
         print(f"      → {tc['name']}({args}...)")
@@ -162,17 +171,29 @@ def run_full() -> int:
     rate = save_tokens / stats1["total_tokens"] * 100 if stats1["total_tokens"] else 0
     print(f"  {'指标':<12}{'无参考':<12}{'注入复用':<12}{'节省':<10}")
     print(f"  {'-' * 46}")
-    print(f"  {'工具调用':<10}{stats1['tool_call_count']:<12}"
-          f"{stats2['tool_call_count']:<12}{save_calls:<10}")
-    print(f"  {'token':<10}{stats1['total_tokens']:<12}"
-          f"{stats2['total_tokens']:<12}{save_tokens} ({rate:.1f}%)")
-    print(f"  {'成功率':<10}{'✅' if passed1 else '❌':<12}{'✅' if passed2 else '❌':<12}")
-    print(f"\n  LLM 剪枝成本（一次性）: {judge_result['total_tokens']} tokens，"
-          f"复用 {max(1, round(judge_result['total_tokens'] / max(save_tokens, 1)))} 次回本")
+    print(
+        f"  {'工具调用':<10}{stats1['tool_call_count']:<12}"
+        f"{stats2['tool_call_count']:<12}{save_calls:<10}"
+    )
+    print(
+        f"  {'token':<10}{stats1['total_tokens']:<12}"
+        f"{stats2['total_tokens']:<12}{save_tokens} ({rate:.1f}%)"
+    )
+    print(
+        f"  {'成功率':<10}{'✅' if passed1 else '❌':<12}"
+        f"{'✅' if passed2 else '❌':<12}"
+    )
+    print(
+        f"\n  LLM 剪枝成本（一次性）: {judge_result['total_tokens']} tokens，"
+        f"复用 {max(1, round(judge_result['total_tokens'] / max(save_tokens, 1)))} "
+        f"次回本"
+    )
     if rate >= 10:
         verdict = f"注入显著省 token ✅（节省 {rate:.1f}%）"
     else:
-        verdict = "本次任务注入收益有限——注入适用于固定流程/复杂任务（见 docs/EvalReport.md）"
+        verdict = (
+            "本次任务注入收益有限——注入适用于固定流程/复杂任务（见 docs/EvalReport.md）"
+        )
     print(f"\n  结论: {verdict}")
 
     wfm.close()
@@ -187,26 +208,72 @@ def run_offline() -> int:
     wfm = create_memory_manager()
 
     fake_steps = [
-        {"step_id": "s1", "step_index": 0, "type": "toolcall", "name": "read_file",
-         "arguments": "{'path': 'src/main.py'}", "result": "def main(): pass",
-         "status": "success", "duration_ms": 100, "error_message": "", "timestamp": "2024-01-01"},
-        {"step_id": "s2", "step_index": 1, "type": "bashcall", "name": "ls",
-         "arguments": "{'dir': 'src/'}", "result": "main.py utils.py",
-         "status": "success", "duration_ms": 50, "error_message": "", "timestamp": "2024-01-01"},
-        {"step_id": "s3", "step_index": 2, "type": "toolcall", "name": "edit_file",
-         "arguments": "{'path': 'src/main.py', 'content': 'def main(): return 42'}",
-         "result": "success", "status": "success", "duration_ms": 200, "error_message": "", "timestamp": "2024-01-01"},
-        {"step_id": "s4", "step_index": 3, "type": "toolcall", "name": "edit_file",
-         "arguments": "{'path': 'src/main.py', 'content': 'def main(): return 99'}",
-         "result": "success", "status": "success", "duration_ms": 150, "error_message": "", "timestamp": "2024-01-01"},
-        {"step_id": "s5", "step_index": 4, "type": "bashcall", "name": "python",
-         "arguments": "{'script': 'src/main.py'}", "result": "99",
-         "status": "success", "duration_ms": 300, "error_message": "", "timestamp": "2024-01-01"},
+        {
+            "step_id": "s1",
+            "step_index": 0,
+            "type": "toolcall",
+            "name": "read_file",
+            "arguments": "{'path': 'src/main.py'}",
+            "result": "def main(): pass",
+            "status": "success",
+            "duration_ms": 100,
+            "error_message": "",
+            "timestamp": "2024-01-01",
+        },
+        {
+            "step_id": "s2",
+            "step_index": 1,
+            "type": "bashcall",
+            "name": "ls",
+            "arguments": "{'dir': 'src/'}",
+            "result": "main.py utils.py",
+            "status": "success",
+            "duration_ms": 50,
+            "error_message": "",
+            "timestamp": "2024-01-01",
+        },
+        {
+            "step_id": "s3",
+            "step_index": 2,
+            "type": "toolcall",
+            "name": "edit_file",
+            "arguments": "{'path': 'src/main.py', 'content': 'def main(): return 42'}",
+            "result": "success",
+            "status": "success",
+            "duration_ms": 200,
+            "error_message": "",
+            "timestamp": "2024-01-01",
+        },
+        {
+            "step_id": "s4",
+            "step_index": 3,
+            "type": "toolcall",
+            "name": "edit_file",
+            "arguments": "{'path': 'src/main.py', 'content': 'def main(): return 99'}",
+            "result": "success",
+            "status": "success",
+            "duration_ms": 150,
+            "error_message": "",
+            "timestamp": "2024-01-01",
+        },
+        {
+            "step_id": "s5",
+            "step_index": 4,
+            "type": "bashcall",
+            "name": "python",
+            "arguments": "{'script': 'src/main.py'}",
+            "result": "99",
+            "status": "success",
+            "duration_ms": 300,
+            "error_message": "",
+            "timestamp": "2024-01-01",
+        },
     ]
 
     wf_id = "demo_workflow_001"
     wfm.workflow_store.create_workflow(
-        workflow_id=wf_id, name="修复 main.py 返回值", source_thread_id="demo_thread")
+        workflow_id=wf_id, name="修复 main.py 返回值", source_thread_id="demo_thread"
+    )
     for s in fake_steps:
         wfm.workflow_store.add_step(**s, workflow_id=wf_id)
 
@@ -246,9 +313,11 @@ def main_with_args(offline: bool = False) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="WorkflowManager 完整样例：提取 → LLM 剪枝 → 固化 → 检索 → 注入复用")
-    parser.add_argument("--offline", action="store_true",
-                        help="离线演示（假数据，无需 API key）")
+        description="WorkflowManager 完整样例：提取 → LLM 剪枝 → 固化 → 检索 → 注入复用"
+    )
+    parser.add_argument(
+        "--offline", action="store_true", help="离线演示（假数据，无需 API key）"
+    )
     args = parser.parse_args()
     return main_with_args(offline=args.offline)
 

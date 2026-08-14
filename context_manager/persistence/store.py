@@ -13,65 +13,68 @@ class WorkflowStoreBase(ABC):
     """Workflow 元数据存储接口。"""
 
     @abstractmethod
-    def create_workflow(self, workflow_id: str, name: str,
-                        description: str = "", source_thread_id: str = "",
-                        tags: str = "") -> None:
-        ...
+    def create_workflow(
+        self,
+        workflow_id: str,
+        name: str,
+        description: str = "",
+        source_thread_id: str = "",
+        tags: str = "",
+    ) -> None: ...
 
     @abstractmethod
-    def get_workflow(self, workflow_id: str) -> Workflow | None:
-        ...
+    def get_workflow(self, workflow_id: str) -> Workflow | None: ...
 
     @abstractmethod
-    def list_workflows(self, status: str | None = None) -> list[Workflow]:
-        ...
+    def list_workflows(self, status: str | None = None) -> list[Workflow]: ...
 
     @abstractmethod
-    def update_status(self, workflow_id: str, status: str) -> None:
-        ...
+    def update_status(self, workflow_id: str, status: str) -> None: ...
 
     @abstractmethod
-    def update_name(self, workflow_id: str, name: str) -> None:
-        ...
+    def update_name(self, workflow_id: str, name: str) -> None: ...
 
     @abstractmethod
-    def update_description(self, workflow_id: str, description: str) -> None:
-        ...
+    def update_description(self, workflow_id: str, description: str) -> None: ...
 
     @abstractmethod
-    def delete_workflow(self, workflow_id: str) -> None:
-        ...
+    def delete_workflow(self, workflow_id: str) -> None: ...
 
     @abstractmethod
-    def add_step(self, step_id: str, workflow_id: str, step_index: int,
-                 type: str, name: str, arguments: str = "", result: str = "",
-                 status: str = "success", duration_ms: int = 0,
-                 error_message: str = "", timestamp: str = "") -> None:
-        ...
+    def add_step(
+        self,
+        step_id: str,
+        workflow_id: str,
+        step_index: int,
+        type: str,
+        name: str,
+        arguments: str = "",
+        result: str = "",
+        status: str = "success",
+        duration_ms: int = 0,
+        error_message: str = "",
+        timestamp: str = "",
+    ) -> None: ...
 
     @abstractmethod
-    def get_steps(self, workflow_id: str) -> list[Step]:
-        ...
+    def get_steps(self, workflow_id: str) -> list[Step]: ...
 
     @abstractmethod
-    def update_step_pruned(self, step_id: str, is_pruned: bool) -> None:
-        ...
+    def update_step_pruned(self, step_id: str, is_pruned: bool) -> None: ...
 
     @abstractmethod
-    def update_step_fields(self, step_id: str, **fields) -> None:
-        ...
+    def update_step_fields(self, step_id: str, **fields) -> None: ...
 
     @abstractmethod
-    def delete_step(self, step_id: str) -> None:
-        ...
+    def delete_step(self, step_id: str) -> None: ...
 
     @abstractmethod
-    def reorder_steps(self, workflow_id: str, step_index_map: dict[str, int]) -> None:
-        ...
+    def reorder_steps(
+        self, workflow_id: str, step_index_map: dict[str, int]
+    ) -> None: ...
 
     @abstractmethod
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...
 
 
 class SQLiteWorkflowStore(WorkflowStoreBase):
@@ -117,9 +120,14 @@ class SQLiteWorkflowStore(WorkflowStoreBase):
 
     # ── Workflow CRUD ────────────────────────────────
 
-    def create_workflow(self, workflow_id: str, name: str,
-                        description: str = "", source_thread_id: str = "",
-                        tags: str = "") -> None:
+    def create_workflow(
+        self,
+        workflow_id: str,
+        name: str,
+        description: str = "",
+        source_thread_id: str = "",
+        tags: str = "",
+    ) -> None:
         now = datetime.datetime.now().isoformat()
         self._conn.execute(
             "INSERT INTO workflows (workflow_id, name, description, status, "
@@ -145,7 +153,8 @@ class SQLiteWorkflowStore(WorkflowStoreBase):
         if status:
             rows = self._conn.execute(
                 "SELECT workflow_id, name, description, status, source_thread_id, "
-                "tags, created_at, updated_at FROM workflows WHERE status = ? ORDER BY created_at",
+                "tags, created_at, updated_at FROM workflows "
+                "WHERE status = ? ORDER BY created_at",
                 (status,),
             ).fetchall()
         else:
@@ -174,28 +183,52 @@ class SQLiteWorkflowStore(WorkflowStoreBase):
     def update_description(self, workflow_id: str, description: str) -> None:
         now = datetime.datetime.now().isoformat()
         self._conn.execute(
-            "UPDATE workflows SET description = ?, updated_at = ? WHERE workflow_id = ?",
+            "UPDATE workflows SET description = ?, updated_at = ? "
+            "WHERE workflow_id = ?",
             (description, now, workflow_id),
         )
         self._conn.commit()
 
     def delete_workflow(self, workflow_id: str) -> None:
         self._conn.execute("DELETE FROM steps WHERE workflow_id = ?", (workflow_id,))
-        self._conn.execute("DELETE FROM workflows WHERE workflow_id = ?", (workflow_id,))
+        self._conn.execute(
+            "DELETE FROM workflows WHERE workflow_id = ?", (workflow_id,)
+        )
         self._conn.commit()
 
     # ── Step CRUD ────────────────────────────────────
 
-    def add_step(self, step_id: str, workflow_id: str, step_index: int,
-                 type: str, name: str, arguments: str = "", result: str = "",
-                 status: str = "success", duration_ms: int = 0,
-                 error_message: str = "", timestamp: str = "") -> None:
+    def add_step(
+        self,
+        step_id: str,
+        workflow_id: str,
+        step_index: int,
+        type: str,
+        name: str,
+        arguments: str = "",
+        result: str = "",
+        status: str = "success",
+        duration_ms: int = 0,
+        error_message: str = "",
+        timestamp: str = "",
+    ) -> None:
         self._conn.execute(
             "INSERT INTO steps (step_id, workflow_id, step_index, type, name, "
-            "arguments, result, status, duration_ms, error_message, is_pruned, timestamp) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
-            (step_id, workflow_id, step_index, type, name, arguments, result,
-             status, duration_ms, error_message, timestamp),
+            "arguments, result, status, duration_ms, error_message, is_pruned, "
+            "timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+            (
+                step_id,
+                workflow_id,
+                step_index,
+                type,
+                name,
+                arguments,
+                result,
+                status,
+                duration_ms,
+                error_message,
+                timestamp,
+            ),
         )
         self._conn.commit()
 
@@ -216,7 +249,16 @@ class SQLiteWorkflowStore(WorkflowStoreBase):
         self._conn.commit()
 
     def update_step_fields(self, step_id: str, **fields) -> None:
-        allowed = {"name", "arguments", "result", "status", "error_message", "duration_ms", "type", "timestamp"}
+        allowed = {
+            "name",
+            "arguments",
+            "result",
+            "status",
+            "error_message",
+            "duration_ms",
+            "type",
+            "timestamp",
+        }
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
             return
@@ -236,7 +278,8 @@ class SQLiteWorkflowStore(WorkflowStoreBase):
         with self._conn:
             for step_id, new_index in step_index_map.items():
                 self._conn.execute(
-                    "UPDATE steps SET step_index = ? WHERE step_id = ? AND workflow_id = ?",
+                    "UPDATE steps SET step_index = ? "
+                    "WHERE step_id = ? AND workflow_id = ?",
                     (new_index, step_id, workflow_id),
                 )
 
@@ -284,9 +327,14 @@ class MemoryWorkflowStore(WorkflowStoreBase):
 
     # ── Workflow CRUD ────────────────────────────────
 
-    def create_workflow(self, workflow_id: str, name: str,
-                        description: str = "", source_thread_id: str = "",
-                        tags: str = "") -> None:
+    def create_workflow(
+        self,
+        workflow_id: str,
+        name: str,
+        description: str = "",
+        source_thread_id: str = "",
+        tags: str = "",
+    ) -> None:
         now = datetime.datetime.now().isoformat()
         self._workflows[workflow_id] = Workflow(
             workflow_id=workflow_id,
@@ -331,10 +379,20 @@ class MemoryWorkflowStore(WorkflowStoreBase):
 
     # ── Step CRUD ────────────────────────────────────
 
-    def add_step(self, step_id: str, workflow_id: str, step_index: int,
-                 type: str, name: str, arguments: str = "", result: str = "",
-                 status: str = "success", duration_ms: int = 0,
-                 error_message: str = "", timestamp: str = "") -> None:
+    def add_step(
+        self,
+        step_id: str,
+        workflow_id: str,
+        step_index: int,
+        type: str,
+        name: str,
+        arguments: str = "",
+        result: str = "",
+        status: str = "success",
+        duration_ms: int = 0,
+        error_message: str = "",
+        timestamp: str = "",
+    ) -> None:
         wf = self._workflows.get(workflow_id)
         if wf is None:
             return
@@ -368,7 +426,17 @@ class MemoryWorkflowStore(WorkflowStoreBase):
                     return
 
     def update_step_fields(self, step_id: str, **fields) -> None:
-        allowed = {"name", "arguments", "result", "status", "error_message", "duration_ms", "type", "timestamp", "is_pruned"}
+        allowed = {
+            "name",
+            "arguments",
+            "result",
+            "status",
+            "error_message",
+            "duration_ms",
+            "type",
+            "timestamp",
+            "is_pruned",
+        }
         for wf in self._workflows.values():
             for s in wf.steps:
                 if s.step_id == step_id:

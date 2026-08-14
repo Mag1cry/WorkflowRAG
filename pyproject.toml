@@ -39,3 +39,10 @@ packages = [
     "context_manager.persistence",
     "context_manager.workflow",
 ]
+
+[tool.ruff]
+line-length = 88
+exclude = ["eval/tmp", "eval/results", ".pytest_cache", ".git", ".trae"]
+
+[tool.ruff.lint]
+select = ["E", "F"]

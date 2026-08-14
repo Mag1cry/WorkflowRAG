@@ -58,10 +58,24 @@ class TestSQLiteWorkflowStore:
 
     def test_add_and_get_steps(self):
         self.store.create_workflow("wf1", "步骤测试")
-        self.store.add_step("s1", "wf1", 0, "toolcall", "read_file",
-                            arguments="{'path': 'test.py'}", result="content")
-        self.store.add_step("s2", "wf1", 1, "bashcall", "python",
-                            arguments="{'script': 'test.py'}", result="OK")
+        self.store.add_step(
+            "s1",
+            "wf1",
+            0,
+            "toolcall",
+            "read_file",
+            arguments="{'path': 'test.py'}",
+            result="content",
+        )
+        self.store.add_step(
+            "s2",
+            "wf1",
+            1,
+            "bashcall",
+            "python",
+            arguments="{'script': 'test.py'}",
+            result="OK",
+        )
         steps = self.store.get_steps("wf1")
         assert len(steps) == 2
         assert isinstance(steps[0], Step)
@@ -82,9 +96,18 @@ class TestSQLiteWorkflowStore:
 
     def test_update_step_fields(self):
         self.store.create_workflow("wf1", "字段更新测试")
-        self.store.add_step("s1", "wf1", 0, "toolcall", "read_file",
-                            arguments="{'path': 'old.py'}", result="旧内容")
-        self.store.update_step_fields("s1", name="edit_file", arguments="{'path': 'new.py'}", result="新内容")
+        self.store.add_step(
+            "s1",
+            "wf1",
+            0,
+            "toolcall",
+            "read_file",
+            arguments="{'path': 'old.py'}",
+            result="旧内容",
+        )
+        self.store.update_step_fields(
+            "s1", name="edit_file", arguments="{'path': 'new.py'}", result="新内容"
+        )
         steps = self.store.get_steps("wf1")
         assert steps[0].name == "edit_file"
         assert steps[0].arguments == "{'path': 'new.py'}"

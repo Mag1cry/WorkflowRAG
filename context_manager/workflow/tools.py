@@ -7,7 +7,8 @@
 
 工具分类：
 - 查看:   get_workflow / list_workflows / get_step / list_steps / get_steps / visualize
-- 操作:   prune_step / batch_prune / update_step / add_step / remove_step / reorder_steps
+- 操作:   prune_step / batch_prune / update_step / add_step / remove_step
+          / reorder_steps
 - 元数据: update_workflow_name / update_workflow_description
 - 生命周期: solidify / delete_workflow / review_summary
 
@@ -100,10 +101,12 @@ class ReviewToolsMixin:
             return f"Workflow not found: {workflow_id}"
         for s in wf.steps:
             if s.step_index == step_index:
-                return (f"Step {s.step_index}: [{s.type}] {s.name}\n"
-                        f"  args: {s.arguments}\n"
-                        f"  result: {s.result}\n"
-                        f"  status: {s.status} | pruned: {s.is_pruned}")
+                return (
+                    f"Step {s.step_index}: [{s.type}] {s.name}\n"
+                    f"  args: {s.arguments}\n"
+                    f"  result: {s.result}\n"
+                    f"  status: {s.status} | pruned: {s.is_pruned}"
+                )
         return f"Step index {step_index} not found in {workflow_id}"
 
     def list_steps(self, workflow_id: str) -> str:
@@ -168,9 +171,11 @@ class ReviewToolsMixin:
         tc = sum(1 for s in wf.steps if s.type == "toolcall")
         bc = sum(1 for s in wf.steps if s.type == "bashcall")
         failed = sum(1 for s in wf.steps if s.status == "failure")
-        return (f"Workflow: {wf.name} ({wf.status})\n"
-                f"  步骤: {total}  | 保留: {kept}  | 剪枝: {pruned}\n"
-                f"  toolcall: {tc}  | bashcall: {bc}  | 失败: {failed}")
+        return (
+            f"Workflow: {wf.name} ({wf.status})\n"
+            f"  步骤: {total}  | 保留: {kept}  | 剪枝: {pruned}\n"
+            f"  toolcall: {tc}  | bashcall: {bc}  | 失败: {failed}"
+        )
 
     # ── 操作 ──────────────────────────────────────────
 
@@ -189,11 +194,16 @@ class ReviewToolsMixin:
         return f"ok: {len(step_ids)} steps pruned"
 
     def update_step(
-        self, step_id: str,
-        name: str | None = None, arguments: str | None = None,
-        result: str | None = None, status: str | None = None,
-        is_pruned: bool | None = None, type: str | None = None,
-        error_message: str | None = None, duration_ms: int | None = None,
+        self,
+        step_id: str,
+        name: str | None = None,
+        arguments: str | None = None,
+        result: str | None = None,
+        status: str | None = None,
+        is_pruned: bool | None = None,
+        type: str | None = None,
+        error_message: str | None = None,
+        duration_ms: int | None = None,
         timestamp: str | None = None,
     ) -> bool:
         """更新步骤的字段（只传需要修改的字段）。
@@ -201,9 +211,14 @@ class ReviewToolsMixin:
         LLM 审查工具：必须通过此工具修改步骤，禁止直接输出修改后的内容。
         """
         fields = {
-            "name": name, "arguments": arguments, "result": result,
-            "status": status, "is_pruned": is_pruned, "type": type,
-            "error_message": error_message, "duration_ms": duration_ms,
+            "name": name,
+            "arguments": arguments,
+            "result": result,
+            "status": status,
+            "is_pruned": is_pruned,
+            "type": type,
+            "error_message": error_message,
+            "duration_ms": duration_ms,
             "timestamp": timestamp,
         }
         fields = {k: v for k, v in fields.items() if v is not None}
@@ -211,8 +226,16 @@ class ReviewToolsMixin:
             self.workflow_store.update_step_fields(step_id, **fields)
         return True
 
-    def add_step(self, workflow_id: str, after_index: int, type: str, name: str,
-                 arguments: str = "", result: str = "", status: str = "success") -> str:
+    def add_step(
+        self,
+        workflow_id: str,
+        after_index: int,
+        type: str,
+        name: str,
+        arguments: str = "",
+        result: str = "",
+        status: str = "success",
+    ) -> str:
         """在指定位置后插入一个新步骤。返回新 step_id。"""
         import uuid
 
@@ -228,9 +251,14 @@ class ReviewToolsMixin:
 
         step_id = uuid.uuid4().hex[:12]
         self.workflow_store.add_step(
-            step_id=step_id, workflow_id=workflow_id, step_index=new_index,
-            type=type, name=name, arguments=arguments,
-            result=result, status=status,
+            step_id=step_id,
+            workflow_id=workflow_id,
+            step_index=new_index,
+            type=type,
+            name=name,
+            arguments=arguments,
+            result=result,
+            status=status,
         )
         return f"ok:{step_id}"
 
@@ -266,7 +294,10 @@ class ReviewToolsMixin:
     # ── 生命周期 ──────────────────────────────────────
 
     def solidify(self, workflow_id: str) -> None:
-        """固化 Workflow：生成描述、写入索引、标记 SOLIDIFIED（剪枝由 WorkflowJudge 负责）。"""
+        """固化 Workflow：生成描述、写入索引、标记 SOLIDIFIED。
+
+        剪枝由 WorkflowJudge 负责，solidify 只读取现有 is_pruned 标记。
+        """
         from .manager import _generate_description
 
         wf = self.workflow_store.get_workflow(workflow_id)
@@ -292,7 +323,10 @@ class ReviewToolsMixin:
 
         kept = sum(1 for s in step_dicts if not s.get("is_pruned"))
         total = len(step_dicts)
-        print(f"  [SOLIDIFY] {workflow_id} | {kept}/{total} steps retained | {description[:60]}...")
+        print(
+            f"  [SOLIDIFY] {workflow_id} | {kept}/{total} steps retained | "
+            f"{description[:60]}..."
+        )
 
     def delete_workflow(self, workflow_id: str) -> None:
         """物理删除 Workflow（含步骤与索引）。"""
@@ -308,7 +342,9 @@ class ReviewToolsMixin:
         for name in TOOL_METHODS:
             fn = getattr(type(self), name)
             doc = inspect.getdoc(fn) or ""
-            description = doc.split("\n\n")[0].strip().replace("\n", " ") if doc else name
+            description = (
+                doc.split("\n\n")[0].strip().replace("\n", " ") if doc else name
+            )
 
             # `from __future__ import annotations` 下注解是字符串，
             # 用 get_type_hints 解析为真实类型再做 schema 推断
@@ -328,13 +364,15 @@ class ReviewToolsMixin:
                     required.append(pname)
                 properties[pname] = schema
 
-            schemas.append({
-                "name": name,
-                "description": description,
-                "parameters": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": required,
-                },
-            })
+            schemas.append(
+                {
+                    "name": name,
+                    "description": description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": properties,
+                        "required": required,
+                    },
+                }
+            )
         return schemas

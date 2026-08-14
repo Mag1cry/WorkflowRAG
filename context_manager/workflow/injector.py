@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..models import Workflow, Step
+from ..models import Workflow
 
 
 def format_context(workflow: Workflow, max_args_length: int = 80) -> str:

@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import random
 import subprocess
 import sys
 from pathlib import Path
@@ -30,9 +29,7 @@ def init_t1(sb: Path) -> None:
     )
     # 预埋问题：utils.py 导入了不存在的模块
     (sb / "app" / "utils.py").write_text(
-        "import nonexistent_lib_xyz\n\n"
-        "def helper():\n"
-        "    return 'helper works'\n",
+        "import nonexistent_lib_xyz\n\ndef helper():\n    return 'helper works'\n",
         encoding="utf-8",
     )
 
@@ -45,12 +42,21 @@ T1_PROMPT = (
 
 def verify_t1(sb: Path) -> tuple[bool, str]:
     r = subprocess.run(
-        [PY, "app/main.py"], cwd=str(sb), capture_output=True,
-        text=True, timeout=60, encoding="utf-8", errors="replace",
+        [PY, "app/main.py"],
+        cwd=str(sb),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        encoding="utf-8",
+        errors="replace",
     )
     if r.returncode == 0 and "helper works" in (r.stdout or ""):
         return True, f"stdout={r.stdout.strip()!r}"
-    return False, f"exit={r.returncode} stdout={r.stdout.strip()!r} stderr={r.stderr.strip()[-300:]!r}"
+    return (
+        False,
+        f"exit={r.returncode} stdout={r.stdout.strip()!r} "
+        f"stderr={r.stderr.strip()[-300:]!r}",
+    )
 
 
 # ── T2: 创建虚拟环境并验证运行 ───────────────────────
@@ -83,19 +89,27 @@ def verify_t2(sb: Path) -> tuple[bool, str]:
     if not venv_py.is_file():
         return False, ".venv/Scripts/python.exe 不存在（未创建 venv 或路径不对）"
     r = subprocess.run(
-        [str(venv_py), "demo.py"], cwd=str(sb), capture_output=True,
-        text=True, timeout=60, encoding="utf-8", errors="replace",
+        [str(venv_py), "demo.py"],
+        cwd=str(sb),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        encoding="utf-8",
+        errors="replace",
     )
     if r.returncode == 0 and "demo OK" in (r.stdout or ""):
         return True, f"venv python run: {r.stdout.strip()!r}"
-    return False, f"exit={r.returncode} stdout={r.stdout.strip()!r} stderr={r.stderr.strip()[-300:]!r}"
+    return (
+        False,
+        f"exit={r.returncode} stdout={r.stdout.strip()!r} "
+        f"stderr={r.stderr.strip()[-300:]!r}",
+    )
 
 
 # ── T3: 批量重命名文件 ────────────────────────────────
 
 
 def init_t3(sb: Path) -> None:
-    rng = random.Random(42)
     for i in range(1, 9):
         (sb / f"IMG_{i:03d}.jpg").write_text(f"fake jpeg #{i}\n", encoding="utf-8")
     (sb / "notes.txt").write_text("do not touch this file\n", encoding="utf-8")
@@ -118,8 +132,12 @@ def verify_t3(sb: Path) -> tuple[bool, str]:
     notes_ok = (sb / "notes.txt").read_text(encoding="utf-8").startswith("do not touch")
     archive_ok = (sb / "archive" / "readme.md").exists()
     if len(imgs) == 0 and len(photos) == 8 and notes_ok and archive_ok:
-        return True, f"8 photos renamed, notes/archive intact"
-    return False, f"IMG_*.jpg={len(imgs)} photo_*.jpg={len(photos)} notes_ok={notes_ok} archive_ok={archive_ok}"
+        return True, "8 photos renamed, notes/archive intact"
+    return (
+        False,
+        f"IMG_*.jpg={len(imgs)} photo_*.jpg={len(photos)} "
+        f"notes_ok={notes_ok} archive_ok={archive_ok}",
+    )
 
 
 # ── T4: 运行测试并修复失败 ────────────────────────────
@@ -127,8 +145,7 @@ def verify_t3(sb: Path) -> tuple[bool, str]:
 
 def init_t4(sb: Path) -> None:
     (sb / "math_utils.py").write_text(
-        "def add(a, b):\n    return a + b\n\n"
-        "def divide(a, b):\n    return a / b\n",
+        "def add(a, b):\n    return a + b\n\ndef divide(a, b):\n    return a / b\n",
         encoding="utf-8",
     )
     # 预埋问题：divide(1, 0) 抛 ZeroDivisionError，但测试期望 ValueError → 初始失败
@@ -144,18 +161,25 @@ def init_t4(sb: Path) -> None:
 
 
 T4_PROMPT = (
-    "目录中有 math_utils.py 和 test_math.py。运行 `python -m pytest test_math.py -q`，"
-    "测试 test_divide_by_zero 失败：divide(1, 0) 抛出的是 ZeroDivisionError 而测试期望 ValueError。"
-    "请阅读失败原因，修改 math_utils.py 使 divide(1, 0) 抛出 ValueError('cannot divide by zero')，"
+    "目录中有 math_utils.py 和 test_math.py。运行 "
+    "`python -m pytest test_math.py -q`，"
+    "测试 test_divide_by_zero 失败：divide(1, 0) 抛出的是 "
+    "ZeroDivisionError 而测试期望 ValueError。"
+    "请阅读失败原因，修改 math_utils.py 使 divide(1, 0) 抛出 "
+    "ValueError('cannot divide by zero')，"
     "并同步修改测试。最终 `python -m pytest test_math.py -q` 必须全部通过。"
 )
 
 
 def verify_t4(sb: Path) -> tuple[bool, str]:
     r = subprocess.run(
-        [PY, "-m", "pytest", "test_math.py", "-q"], cwd=str(sb),
-        capture_output=True, text=True, timeout=60,
-        encoding="utf-8", errors="replace",
+        [PY, "-m", "pytest", "test_math.py", "-q"],
+        cwd=str(sb),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        encoding="utf-8",
+        errors="replace",
     )
     out = (r.stdout or "") + (r.stderr or "")
     if r.returncode == 0 and "passed" in out:

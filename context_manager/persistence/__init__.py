@@ -5,7 +5,11 @@ from .index import WorkflowIndexBase, FaissWorkflowIndex, MemoryWorkflowIndex
 from .embedding import M3EEmbedding
 
 __all__ = [
-    "WorkflowStoreBase", "SQLiteWorkflowStore", "MemoryWorkflowStore",
-    "WorkflowIndexBase", "FaissWorkflowIndex", "MemoryWorkflowIndex",
+    "WorkflowStoreBase",
+    "SQLiteWorkflowStore",
+    "MemoryWorkflowStore",
+    "WorkflowIndexBase",
+    "FaissWorkflowIndex",
+    "MemoryWorkflowIndex",
     "M3EEmbedding",
 ]

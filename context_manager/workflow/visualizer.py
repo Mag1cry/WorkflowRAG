@@ -31,7 +31,13 @@ def _step_color(step: Step) -> str:
         return _RED
     if step.name in ("read_file", "search_code", "grep", "list_directory"):
         return _BLUE
-    if step.name in ("edit_file", "write_file", "create_file", "apply_diff", "insert_content"):
+    if step.name in (
+        "edit_file",
+        "write_file",
+        "create_file",
+        "apply_diff",
+        "insert_content",
+    ):
         return _CYAN
     if step.type == "bashcall" and step.name in ("python", "pytest", "npm_test"):
         return _GREEN
@@ -44,7 +50,15 @@ def _prune_reason(step: Step, prev_steps: list[Step]) -> str:
     if not step.is_pruned:
         return ""
     name = step.name.lower()
-    if step.type == "bashcall" and name in ("ls", "cat", "echo", "pwd", "which", "date", "print"):
+    if step.type == "bashcall" and name in (
+        "ls",
+        "cat",
+        "echo",
+        "pwd",
+        "which",
+        "date",
+        "print",
+    ):
         return "探索性"
     if name in ("read_file", "search_code", "grep", "list_directory"):
         if not any(s.name == step.name and not s.is_pruned for s in prev_steps):
@@ -72,7 +86,11 @@ def visualize_workflow(wf: Workflow, show_pruned: bool = True) -> str:
     lines = []
     sep = "─" * 58
 
-    status_tag = f"{_GREEN}SOLIDIFIED{_RESET}" if wf.status == "SOLIDIFIED" else f"{_YELLOW}RAW{_RESET}"
+    status_tag = (
+        f"{_GREEN}SOLIDIFIED{_RESET}"
+        if wf.status == "SOLIDIFIED"
+        else f"{_YELLOW}RAW{_RESET}"
+    )
     lines.append(f"{_BOLD}┌─ {wf.name}  [{status_tag}]{_RESET}")
     if wf.description and wf.description != "(empty workflow)":
         lines.append(f"│  描述: {_GRAY}{wf.description}{_RESET}")
@@ -100,7 +118,10 @@ def visualize_workflow(wf: Workflow, show_pruned: bool = True) -> str:
             else:
                 tag = ""
 
-            line = f"│  {color}{idx} {icon} [{type_display:8s}] {name_display}{tag}{_RESET}"
+            line = (
+                f"│  {color}{idx} {icon} [{type_display:8s}] "
+                f"{name_display}{tag}{_RESET}"
+            )
 
             args = step.arguments
             if args and len(args) > 50:
@@ -123,7 +144,11 @@ def visualize_workflow(wf: Workflow, show_pruned: bool = True) -> str:
             lines.append(line)
 
         lines.append(f"│{_GRAY}{sep}{_RESET}")
-        status = f"{_GREEN}保留 {kept}{_RESET} | {_RED}剪枝 {total - kept}{_RESET}" if total > kept else f"{_GREEN}保留 {kept}{_RESET}"
+        status = (
+            f"{_GREEN}保留 {kept}{_RESET} | {_RED}剪枝 {total - kept}{_RESET}"
+            if total > kept
+            else f"{_GREEN}保留 {kept}{_RESET}"
+        )
         lines.append(f"│  步骤: {total}  |  {status}")
 
     lines.append(f"{_BOLD}└{_RESET}{'─' * 58}")
@@ -152,7 +177,10 @@ def visualize_comparison(raw: Workflow, solidified: Workflow) -> str:
     lines.append("")
 
     lines.append(f"{_BOLD}{'=' * 60}{_RESET}")
-    lines.append(f"  {_BOLD}结果:{_RESET} {raw_steps} 步 → {solid_steps} 步  ({_GREEN}-{pct}%{_RESET})")
+    lines.append(
+        f"  {_BOLD}结果:{_RESET} {raw_steps} 步 → {solid_steps} 步  "
+        f"({_GREEN}-{pct}%{_RESET})"
+    )
     lines.append(f"  剪枝率: {_GREEN}{pct}%{_RESET} 的噪音步骤被移除")
     lines.append(f"{_BOLD}{'=' * 60}{_RESET}")
 
@@ -165,30 +193,114 @@ def build_case_study() -> tuple[Workflow, Workflow]:
     场景: Agent 修复一个 Python 包导入错误。
     """
     raw_steps = [
-        Step(step_id="s1", workflow_id="case", step_index=0, type="bashcall",
-             name="ls", arguments="{'dir': '.'}", result="src/ tests/"),
-        Step(step_id="s2", workflow_id="case", step_index=1, type="toolcall",
-             name="read_file", arguments="{'path': 'src/main.py'}", result="from utils import helper"),
-        Step(step_id="s3", workflow_id="case", step_index=2, type="bashcall",
-             name="python", arguments="{'script': 'src/main.py'}", result="ModuleNotFoundError: No module named 'utils'"),
-        Step(step_id="s4", workflow_id="case", step_index=3, type="bashcall",
-             name="ls", arguments="{'dir': 'src/'}", result="main.py"),
-        Step(step_id="s5", workflow_id="case", step_index=4, type="bashcall",
-             name="pip_install", arguments="{'package': 'utils'}", result="ERROR: Could not find a version"),
-        Step(step_id="s6", workflow_id="case", step_index=5, type="toolcall",
-             name="grep", arguments="{'pattern': 'utils', 'path': 'src/'}", result="src/main.py: from utils import helper"),
-        Step(step_id="s7", workflow_id="case", step_index=6, type="toolcall",
-             name="read_file", arguments="{'path': 'src/main.py'}", result="from utils import helper"),
-        Step(step_id="s8", workflow_id="case", step_index=7, type="toolcall",
-             name="edit_file", arguments="{'path': 'src/main.py', 'content': 'import helper'}"),
-        Step(step_id="s9", workflow_id="case", step_index=8, type="bashcall",
-             name="python", arguments="{'script': 'src/main.py'}", result="ModuleNotFoundError: No module named 'helper'"),
-        Step(step_id="s10", workflow_id="case", step_index=9, type="toolcall",
-             name="edit_file", arguments="{'path': 'src/main.py', 'content': 'from src.helper import helper'}"),
-        Step(step_id="s11", workflow_id="case", step_index=10, type="bashcall",
-             name="python", arguments="{'script': 'src/main.py'}", result="success"),
-        Step(step_id="s12", workflow_id="case", step_index=11, type="bashcall",
-             name="ls", arguments="{'dir': 'src/'}", result="main.py helper.py"),
+        Step(
+            step_id="s1",
+            workflow_id="case",
+            step_index=0,
+            type="bashcall",
+            name="ls",
+            arguments="{'dir': '.'}",
+            result="src/ tests/",
+        ),
+        Step(
+            step_id="s2",
+            workflow_id="case",
+            step_index=1,
+            type="toolcall",
+            name="read_file",
+            arguments="{'path': 'src/main.py'}",
+            result="from utils import helper",
+        ),
+        Step(
+            step_id="s3",
+            workflow_id="case",
+            step_index=2,
+            type="bashcall",
+            name="python",
+            arguments="{'script': 'src/main.py'}",
+            result="ModuleNotFoundError: No module named 'utils'",
+        ),
+        Step(
+            step_id="s4",
+            workflow_id="case",
+            step_index=3,
+            type="bashcall",
+            name="ls",
+            arguments="{'dir': 'src/'}",
+            result="main.py",
+        ),
+        Step(
+            step_id="s5",
+            workflow_id="case",
+            step_index=4,
+            type="bashcall",
+            name="pip_install",
+            arguments="{'package': 'utils'}",
+            result="ERROR: Could not find a version",
+        ),
+        Step(
+            step_id="s6",
+            workflow_id="case",
+            step_index=5,
+            type="toolcall",
+            name="grep",
+            arguments="{'pattern': 'utils', 'path': 'src/'}",
+            result="src/main.py: from utils import helper",
+        ),
+        Step(
+            step_id="s7",
+            workflow_id="case",
+            step_index=6,
+            type="toolcall",
+            name="read_file",
+            arguments="{'path': 'src/main.py'}",
+            result="from utils import helper",
+        ),
+        Step(
+            step_id="s8",
+            workflow_id="case",
+            step_index=7,
+            type="toolcall",
+            name="edit_file",
+            arguments="{'path': 'src/main.py', 'content': 'import helper'}",
+        ),
+        Step(
+            step_id="s9",
+            workflow_id="case",
+            step_index=8,
+            type="bashcall",
+            name="python",
+            arguments="{'script': 'src/main.py'}",
+            result="ModuleNotFoundError: No module named 'helper'",
+        ),
+        Step(
+            step_id="s10",
+            workflow_id="case",
+            step_index=9,
+            type="toolcall",
+            name="edit_file",
+            arguments=(
+                "{'path': 'src/main.py', 'content': 'from src.helper import helper'}"
+            ),
+        ),
+        Step(
+            step_id="s11",
+            workflow_id="case",
+            step_index=10,
+            type="bashcall",
+            name="python",
+            arguments="{'script': 'src/main.py'}",
+            result="success",
+        ),
+        Step(
+            step_id="s12",
+            workflow_id="case",
+            step_index=11,
+            type="bashcall",
+            name="ls",
+            arguments="{'dir': 'src/'}",
+            result="main.py helper.py",
+        ),
     ]
 
     raw = Workflow(
@@ -200,23 +312,64 @@ def build_case_study() -> tuple[Workflow, Workflow]:
 
     # 模拟剪枝后的结果
     solidified_steps = [
-        Step(step_id="s2", workflow_id="case", step_index=0, type="toolcall",
-             name="read_file", arguments="{'path': 'src/main.py'}", result="from utils import helper"),
-        Step(step_id="s3", workflow_id="case", step_index=1, type="bashcall",
-             name="python", arguments="{'script': 'src/main.py'}", result="ModuleNotFoundError: No module named 'utils'"),
-        Step(step_id="s6", workflow_id="case", step_index=2, type="toolcall",
-             name="grep", arguments="{'pattern': 'utils', 'path': 'src/'}", result="src/main.py: from utils import helper"),
-        Step(step_id="s10", workflow_id="case", step_index=3, type="toolcall",
-             name="edit_file", arguments="{'path': 'src/main.py', 'content': 'from src.helper import helper'}", result="success"),
-        Step(step_id="s11", workflow_id="case", step_index=4, type="bashcall",
-             name="python", arguments="{'script': 'src/main.py'}", result="success"),
+        Step(
+            step_id="s2",
+            workflow_id="case",
+            step_index=0,
+            type="toolcall",
+            name="read_file",
+            arguments="{'path': 'src/main.py'}",
+            result="from utils import helper",
+        ),
+        Step(
+            step_id="s3",
+            workflow_id="case",
+            step_index=1,
+            type="bashcall",
+            name="python",
+            arguments="{'script': 'src/main.py'}",
+            result="ModuleNotFoundError: No module named 'utils'",
+        ),
+        Step(
+            step_id="s6",
+            workflow_id="case",
+            step_index=2,
+            type="toolcall",
+            name="grep",
+            arguments="{'pattern': 'utils', 'path': 'src/'}",
+            result="src/main.py: from utils import helper",
+        ),
+        Step(
+            step_id="s10",
+            workflow_id="case",
+            step_index=3,
+            type="toolcall",
+            name="edit_file",
+            arguments=(
+                "{'path': 'src/main.py', 'content': 'from src.helper import helper'}"
+            ),
+            result="success",
+        ),
+        Step(
+            step_id="s11",
+            workflow_id="case",
+            step_index=4,
+            type="bashcall",
+            name="python",
+            arguments="{'script': 'src/main.py'}",
+            result="success",
+        ),
     ]
 
     solidified = Workflow(
         workflow_id="case_study",
         name="修复 Python 导入错误",
         status="SOLIDIFIED",
-        description="read_file({'path': 'src/main.py'}) → python({'script': 'src/main.py'}) → grep(...) → edit_file(...) → python({'script': 'src/main.py'})",
+        description=(
+            "read_file({'path': 'src/main.py'}) → "
+            "python({'script': 'src/main.py'}) → grep(...) → "
+            "edit_file(...) → python({'script': 'src/main.py'})"
+        ),
         steps=solidified_steps,
     )
 

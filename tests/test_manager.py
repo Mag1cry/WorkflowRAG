@@ -27,15 +27,23 @@ class TestWorkflowManager:
         wf_id = "test_wf_steps"
         self.wfm.workflow_store.create_workflow(wf_id, "带步骤的 Workflow")
         self.wfm.workflow_store.add_step(
-            step_id="s1", workflow_id=wf_id, step_index=0,
-            type="toolcall", name="read_file",
-            arguments="{'path': 'test.py'}", result="content",
+            step_id="s1",
+            workflow_id=wf_id,
+            step_index=0,
+            type="toolcall",
+            name="read_file",
+            arguments="{'path': 'test.py'}",
+            result="content",
             timestamp="2024-01-01",
         )
         self.wfm.workflow_store.add_step(
-            step_id="s2", workflow_id=wf_id, step_index=1,
-            type="bashcall", name="python",
-            arguments="{'script': 'test.py'}", result="OK",
+            step_id="s2",
+            workflow_id=wf_id,
+            step_index=1,
+            type="bashcall",
+            name="python",
+            arguments="{'script': 'test.py'}",
+            result="OK",
             timestamp="2024-01-01",
         )
         steps = self.wfm.workflow_store.get_steps(wf_id)
@@ -53,15 +61,37 @@ class TestWorkflowManager:
 
         steps_data = [
             ("s1", 0, "bashcall", "ls", "{'dir': '.'}", "files", "success"),
-            ("s2", 1, "toolcall", "edit_file", "{'path': 'a.py', 'content': 'v1'}", "ok", "success"),
-            ("s3", 2, "toolcall", "edit_file", "{'path': 'a.py', 'content': 'v2'}", "ok", "success"),
+            (
+                "s2",
+                1,
+                "toolcall",
+                "edit_file",
+                "{'path': 'a.py', 'content': 'v1'}",
+                "ok",
+                "success",
+            ),
+            (
+                "s3",
+                2,
+                "toolcall",
+                "edit_file",
+                "{'path': 'a.py', 'content': 'v2'}",
+                "ok",
+                "success",
+            ),
             ("s4", 3, "bashcall", "python", "{'script': 'a.py'}", "v2", "success"),
         ]
         for sid, idx, typ, name, args, result, status in steps_data:
             self.wfm.workflow_store.add_step(
-                step_id=sid, workflow_id=wf_id, step_index=idx,
-                type=typ, name=name, arguments=args, result=result,
-                status=status, timestamp="2024-01-01",
+                step_id=sid,
+                workflow_id=wf_id,
+                step_index=idx,
+                type=typ,
+                name=name,
+                arguments=args,
+                result=result,
+                status=status,
+                timestamp="2024-01-01",
             )
         self.wfm.solidify(wf_id)
 
@@ -80,13 +110,27 @@ class TestWorkflowManager:
 
         steps_data = [
             ("s1", 0, "bashcall", "ls", "{'dir': '.'}", "files", "success"),
-            ("s2", 1, "toolcall", "edit_file", "{'path': 'a.py', 'content': 'v2'}", "ok", "success"),
+            (
+                "s2",
+                1,
+                "toolcall",
+                "edit_file",
+                "{'path': 'a.py', 'content': 'v2'}",
+                "ok",
+                "success",
+            ),
         ]
         for sid, idx, typ, name, args, result, status in steps_data:
             self.wfm.workflow_store.add_step(
-                step_id=sid, workflow_id=wf_id, step_index=idx,
-                type=typ, name=name, arguments=args, result=result,
-                status=status, timestamp="2024-01-01",
+                step_id=sid,
+                workflow_id=wf_id,
+                step_index=idx,
+                type=typ,
+                name=name,
+                arguments=args,
+                result=result,
+                status=status,
+                timestamp="2024-01-01",
             )
         # 模拟 LLM 审查剪枝 s1
         self.wfm.prune_step("s1", True)
@@ -103,16 +147,26 @@ class TestWorkflowManager:
         wf_id = "test_retrieve"
         self.wfm.workflow_store.create_workflow(wf_id, "检索测试")
         self.wfm.workflow_store.add_step(
-            step_id="s1", workflow_id=wf_id, step_index=0,
-            type="toolcall", name="read_file",
-            arguments="{'path': 'bug.py'}", result="content",
-            status="success", timestamp="2024-01-01",
+            step_id="s1",
+            workflow_id=wf_id,
+            step_index=0,
+            type="toolcall",
+            name="read_file",
+            arguments="{'path': 'bug.py'}",
+            result="content",
+            status="success",
+            timestamp="2024-01-01",
         )
         self.wfm.workflow_store.add_step(
-            step_id="s2", workflow_id=wf_id, step_index=1,
-            type="toolcall", name="edit_file",
-            arguments="{'path': 'bug.py'}", result="fixed",
-            status="success", timestamp="2024-01-01",
+            step_id="s2",
+            workflow_id=wf_id,
+            step_index=1,
+            type="toolcall",
+            name="edit_file",
+            arguments="{'path': 'bug.py'}",
+            result="fixed",
+            status="success",
+            timestamp="2024-01-01",
         )
         self.wfm.solidify(wf_id)
         results = self.wfm.retrieve("修复 bug", top_k=3)
@@ -140,8 +194,12 @@ class TestWorkflowManager:
         wf_id = "test_tool"
         self.wfm.workflow_store.create_workflow(wf_id, "工具测试")
         self.wfm.workflow_store.add_step(
-            step_id="s1", workflow_id=wf_id, step_index=0,
-            type="toolcall", name="read_file", timestamp="2024-01-01",
+            step_id="s1",
+            workflow_id=wf_id,
+            step_index=0,
+            type="toolcall",
+            name="read_file",
+            timestamp="2024-01-01",
         )
         result = self.wfm.prune_step("s1", True)
         assert result is True
@@ -154,9 +212,13 @@ class TestWorkflowManager:
         wf_id = "test_get_step"
         self.wfm.workflow_store.create_workflow(wf_id, "获取步骤测试")
         self.wfm.workflow_store.add_step(
-            step_id="s1", workflow_id=wf_id, step_index=0,
-            type="toolcall", name="read_file",
-            arguments="{'path': 'test.py'}", result="content",
+            step_id="s1",
+            workflow_id=wf_id,
+            step_index=0,
+            type="toolcall",
+            name="read_file",
+            arguments="{'path': 'test.py'}",
+            result="content",
             timestamp="2024-01-01",
         )
         result = self.wfm.get_step(wf_id, 0)
@@ -172,11 +234,21 @@ class TestWorkflowManager:
         wf_id = "test_add_step"
         self.wfm.workflow_store.create_workflow(wf_id, "添加步骤测试")
         self.wfm.workflow_store.add_step(
-            step_id="s1", workflow_id=wf_id, step_index=0,
-            type="toolcall", name="read_file", timestamp="2024-01-01",
+            step_id="s1",
+            workflow_id=wf_id,
+            step_index=0,
+            type="toolcall",
+            name="read_file",
+            timestamp="2024-01-01",
         )
-        result = self.wfm.add_step(wf_id, 0, "bashcall", "python",
-                                   arguments="{'script': 'test.py'}", result="OK")
+        result = self.wfm.add_step(
+            wf_id,
+            0,
+            "bashcall",
+            "python",
+            arguments="{'script': 'test.py'}",
+            result="OK",
+        )
         assert result.startswith("ok:")
         step_id = result.split(":")[1]
         assert len(step_id) == 12
@@ -192,12 +264,20 @@ class TestWorkflowManager:
         wf_id = "test_remove_step"
         self.wfm.workflow_store.create_workflow(wf_id, "删除步骤测试")
         self.wfm.workflow_store.add_step(
-            step_id="s1", workflow_id=wf_id, step_index=0,
-            type="toolcall", name="read_file", timestamp="2024-01-01",
+            step_id="s1",
+            workflow_id=wf_id,
+            step_index=0,
+            type="toolcall",
+            name="read_file",
+            timestamp="2024-01-01",
         )
         self.wfm.workflow_store.add_step(
-            step_id="s2", workflow_id=wf_id, step_index=1,
-            type="bashcall", name="python", timestamp="2024-01-01",
+            step_id="s2",
+            workflow_id=wf_id,
+            step_index=1,
+            type="bashcall",
+            name="python",
+            timestamp="2024-01-01",
         )
         result = self.wfm.remove_step("s1")
         assert result == "ok"
@@ -208,12 +288,20 @@ class TestWorkflowManager:
         wf_id = "test_reorder"
         self.wfm.workflow_store.create_workflow(wf_id, "重排序测试")
         self.wfm.workflow_store.add_step(
-            step_id="s1", workflow_id=wf_id, step_index=0,
-            type="toolcall", name="step_a", timestamp="2024-01-01",
+            step_id="s1",
+            workflow_id=wf_id,
+            step_index=0,
+            type="toolcall",
+            name="step_a",
+            timestamp="2024-01-01",
         )
         self.wfm.workflow_store.add_step(
-            step_id="s2", workflow_id=wf_id, step_index=1,
-            type="toolcall", name="step_b", timestamp="2024-01-01",
+            step_id="s2",
+            workflow_id=wf_id,
+            step_index=1,
+            type="toolcall",
+            name="step_b",
+            timestamp="2024-01-01",
         )
         result = self.wfm.reorder_steps(wf_id, ["s2", "s1"])
         assert result == "ok"
@@ -225,12 +313,20 @@ class TestWorkflowManager:
         wf_id = "test_batch_prune"
         self.wfm.workflow_store.create_workflow(wf_id, "批量剪枝测试")
         self.wfm.workflow_store.add_step(
-            step_id="s1", workflow_id=wf_id, step_index=0,
-            type="toolcall", name="read_file", timestamp="2024-01-01",
+            step_id="s1",
+            workflow_id=wf_id,
+            step_index=0,
+            type="toolcall",
+            name="read_file",
+            timestamp="2024-01-01",
         )
         self.wfm.workflow_store.add_step(
-            step_id="s2", workflow_id=wf_id, step_index=1,
-            type="bashcall", name="ls", timestamp="2024-01-01",
+            step_id="s2",
+            workflow_id=wf_id,
+            step_index=1,
+            type="bashcall",
+            name="ls",
+            timestamp="2024-01-01",
         )
         result = self.wfm.batch_prune(wf_id, ["s1", "s2"])
         assert "2 steps pruned" in result
@@ -241,13 +337,21 @@ class TestWorkflowManager:
         wf_id = "test_review_summary"
         self.wfm.workflow_store.create_workflow(wf_id, "摘要测试")
         self.wfm.workflow_store.add_step(
-            step_id="s1", workflow_id=wf_id, step_index=0,
-            type="toolcall", name="read_file", status="success",
+            step_id="s1",
+            workflow_id=wf_id,
+            step_index=0,
+            type="toolcall",
+            name="read_file",
+            status="success",
             timestamp="2024-01-01",
         )
         self.wfm.workflow_store.add_step(
-            step_id="s2", workflow_id=wf_id, step_index=1,
-            type="bashcall", name="python", status="failure",
+            step_id="s2",
+            workflow_id=wf_id,
+            step_index=1,
+            type="bashcall",
+            name="python",
+            status="failure",
             timestamp="2024-01-01",
         )
         summary = self.wfm.review_summary(wf_id)
@@ -265,12 +369,18 @@ class TestWorkflowManager:
         wf_id = "test_update_fields"
         self.wfm.workflow_store.create_workflow(wf_id, "字段更新测试")
         self.wfm.workflow_store.add_step(
-            step_id="s1", workflow_id=wf_id, step_index=0,
-            type="toolcall", name="read_file",
-            arguments="{'path': 'old.py'}", result="旧内容",
+            step_id="s1",
+            workflow_id=wf_id,
+            step_index=0,
+            type="toolcall",
+            name="read_file",
+            arguments="{'path': 'old.py'}",
+            result="旧内容",
             timestamp="2024-01-01",
         )
-        self.wfm.update_step("s1", name="edit_file", arguments="{'path': 'new.py'}", result="新内容")
+        self.wfm.update_step(
+            "s1", name="edit_file", arguments="{'path': 'new.py'}", result="新内容"
+        )
         steps = self.wfm.workflow_store.get_steps(wf_id)
         assert steps[0].name == "edit_file"
         assert steps[0].arguments == "{'path': 'new.py'}"

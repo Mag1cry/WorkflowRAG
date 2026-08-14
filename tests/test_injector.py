@@ -7,12 +7,24 @@ from context_manager.workflow.injector import format_context, format_context_com
 class TestInjector:
     def test_format_context(self):
         steps = [
-            Step(step_id="s1", workflow_id="w1", step_index=0,
-                 type="toolcall", name="read_file",
-                 arguments="{'path': 'test.py'}", result="content"),
-            Step(step_id="s2", workflow_id="w1", step_index=1,
-                 type="toolcall", name="edit_file",
-                 arguments="{'path': 'test.py'}", result="fixed"),
+            Step(
+                step_id="s1",
+                workflow_id="w1",
+                step_index=0,
+                type="toolcall",
+                name="read_file",
+                arguments="{'path': 'test.py'}",
+                result="content",
+            ),
+            Step(
+                step_id="s2",
+                workflow_id="w1",
+                step_index=1,
+                type="toolcall",
+                name="edit_file",
+                arguments="{'path': 'test.py'}",
+                result="fixed",
+            ),
         ]
         wf = Workflow(workflow_id="w1", name="修复测试", steps=steps)
         result = format_context(wf)
@@ -22,11 +34,24 @@ class TestInjector:
 
     def test_format_context_with_pruned(self):
         steps = [
-            Step(step_id="s1", workflow_id="w1", step_index=0,
-                 type="bashcall", name="ls", arguments="", is_pruned=True),
-            Step(step_id="s2", workflow_id="w1", step_index=1,
-                 type="toolcall", name="edit_file",
-                 arguments="{'path': 'test.py'}", result="fixed"),
+            Step(
+                step_id="s1",
+                workflow_id="w1",
+                step_index=0,
+                type="bashcall",
+                name="ls",
+                arguments="",
+                is_pruned=True,
+            ),
+            Step(
+                step_id="s2",
+                workflow_id="w1",
+                step_index=1,
+                type="toolcall",
+                name="edit_file",
+                arguments="{'path': 'test.py'}",
+                result="fixed",
+            ),
         ]
         wf = Workflow(workflow_id="w1", name="含剪枝", steps=steps)
         result = format_context(wf)
@@ -40,12 +65,22 @@ class TestInjector:
 
     def test_format_context_compact(self):
         steps = [
-            Step(step_id="s1", workflow_id="w1", step_index=0,
-                 type="toolcall", name="read_file",
-                 arguments="{'path': 'test.py'}"),
-            Step(step_id="s2", workflow_id="w1", step_index=1,
-                 type="toolcall", name="edit_file",
-                 arguments="{'path': 'test.py'}"),
+            Step(
+                step_id="s1",
+                workflow_id="w1",
+                step_index=0,
+                type="toolcall",
+                name="read_file",
+                arguments="{'path': 'test.py'}",
+            ),
+            Step(
+                step_id="s2",
+                workflow_id="w1",
+                step_index=1,
+                type="toolcall",
+                name="edit_file",
+                arguments="{'path': 'test.py'}",
+            ),
         ]
         wf = Workflow(workflow_id="w1", name="紧凑测试", steps=steps)
         result = format_context_compact(wf)

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
@@ -26,28 +27,33 @@ from .manager import WorkflowManager
 # ANSI 转义清理（visualize 输出带颜色，喂给 LLM 前去除）
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
-SYSTEM_PROMPT = """你是 Workflow 审查员，负责把 RAW Workflow 修剪为干净、可复用的 SOLIDIFIED Workflow。
-
-你的目标：标记对任务完成没有贡献的步骤（is_pruned=true），保留核心修改与验证步骤。
-
-剪枝标准：
-1. 探索性调用：ls/dir/cat/type/read_file 读无关文件、pwd 等导航/查看命令（含藏在 bash 参数里的，如 bash("cd && pwd")）
-2. 出错但无关：步骤执行失败，但后续通过其他方式解决了问题
-3. 结果被覆盖：同一文件/目标被多次修改，只保留最后一次有效修改
-4. 重复验证：同一验证命令多次成功运行，只保留最后一次
-5. 保留：有效的写操作（write_file/edit_file）、成功且关键的验证运行（python xxx.py / pytest）
-
-工作流程：
-1. 先调用 review_summary 和 list_steps 了解全貌（list_steps 已含参数与结果摘要，通常足够判断）
-2. 需要完整细节时用 get_steps 批量查看多个步骤（一次最多 5 个），避免逐个 get_step
-3. 用 prune_step 或 batch_prune 标记剪枝（用 step_id 操作）
-4. 可选：update_step 修正步骤参数/结果的摘要（删除路径噪音如 cd /sandbox）、update_workflow_description 完善描述
-5. 全部完成后，调用 judge_done 提交审查报告（说明剪了什么、为什么、保留了哪些关键步骤）
-
-效率要求：尽可能少调用工具——list_steps 一次能看完全部步骤，不要对每个步骤单独 get_step。
-
-注意：所有修改必须通过工具完成，禁止在对话中输出修改后的步骤内容。
-"""
+SYSTEM_PROMPT = (
+    "你是 Workflow 审查员，负责把 RAW Workflow 修剪为干净、可复用的 "
+    "SOLIDIFIED Workflow。\n\n"
+    "你的目标：标记对任务完成没有贡献的步骤（is_pruned=true），"
+    "保留核心修改与验证步骤。\n\n"
+    "剪枝标准：\n"
+    "1. 探索性调用：ls/dir/cat/type/read_file 读无关文件、pwd 等导航/查看命令"
+    '（含藏在 bash 参数里的，如 bash("cd && pwd")）\n'
+    "2. 出错但无关：步骤执行失败，但后续通过其他方式解决了问题\n"
+    "3. 结果被覆盖：同一文件/目标被多次修改，只保留最后一次有效修改\n"
+    "4. 重复验证：同一验证命令多次成功运行，只保留最后一次\n"
+    "5. 保留：有效的写操作（write_file/edit_file）、成功且关键的验证运行"
+    "（python xxx.py / pytest）\n\n"
+    "工作流程：\n"
+    "1. 先调用 review_summary 和 list_steps 了解全貌"
+    "（list_steps 已含参数与结果摘要，通常足够判断）\n"
+    "2. 需要完整细节时用 get_steps 批量查看多个步骤（一次最多 5 个），"
+    "避免逐个 get_step\n"
+    "3. 用 prune_step 或 batch_prune 标记剪枝（用 step_id 操作）\n"
+    "4. 可选：update_step 修正步骤参数/结果的摘要（删除路径噪音如 cd /sandbox）、"
+    "update_workflow_description 完善描述\n"
+    "5. 全部完成后，调用 judge_done 提交审查报告"
+    "（说明剪了什么、为什么、保留了哪些关键步骤）\n\n"
+    "效率要求：尽可能少调用工具——list_steps 一次能看完全部步骤，"
+    "不要对每个步骤单独 get_step。\n\n"
+    "注意：所有修改必须通过工具完成，禁止在对话中输出修改后的步骤内容。\n"
+)
 
 
 def _args_model(parameters: dict) -> type[BaseModel]:
@@ -72,6 +78,11 @@ def _args_model(parameters: dict) -> type[BaseModel]:
 
 class WorkflowJudge:
     """让 LLM 通过工具审查并修剪 Workflow 的剪枝器。"""
+
+    # ── 依赖属性声明（__init__ 注入）───────────────────
+    manager: WorkflowManager
+    llm: Any
+    tools: list
 
     def __init__(self, manager: WorkflowManager, llm):
         self.manager = manager
@@ -130,8 +141,11 @@ class WorkflowJudge:
         llm = self.llm.bind_tools(self.tools)
         messages = [
             ("system", SYSTEM_PROMPT.format(workflow_id=workflow_id)),
-            ("user", f"请审查并修剪 Workflow: {workflow_id}。"
-                     f"先看概况与步骤清单，再逐项剪枝，最后调用 judge_done 提交报告。"),
+            (
+                "user",
+                f"请审查并修剪 Workflow: {workflow_id}。"
+                f"先看概况与步骤清单，再逐项剪枝，最后调用 judge_done 提交报告。",
+            ),
         ]
         tool_calls: list[dict] = []
         input_tokens = output_tokens = 0

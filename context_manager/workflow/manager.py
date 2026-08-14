@@ -30,13 +30,20 @@ import numpy as np
 from ..config import Settings
 from ..models import Workflow
 from ..persistence import (
-    WorkflowStoreBase, SQLiteWorkflowStore, MemoryWorkflowStore,
-    WorkflowIndexBase, FaissWorkflowIndex, MemoryWorkflowIndex,
+    WorkflowStoreBase,
+    SQLiteWorkflowStore,
+    MemoryWorkflowStore,
+    WorkflowIndexBase,
+    FaissWorkflowIndex,
+    MemoryWorkflowIndex,
     M3EEmbedding,
 )
 from .injector import format_context as _format_context
 from .tools import ReviewToolsMixin
-from .visualizer import visualize_comparison as _compare, build_case_study as _case_study
+from .visualizer import (
+    visualize_comparison as _compare,
+    build_case_study as _case_study,
+)
 
 
 def _generate_description(steps: list[dict]) -> str:
@@ -60,7 +67,8 @@ class WorkflowManager(ReviewToolsMixin):
 
     公开方法：
     - 生命周期: extract_workflow / retrieve / format_context / visualize_comparison
-    - 审查工具: get_workflow / list_workflows / get_step / prune_step / solidify ...（见 tools.py）
+    - 审查工具: get_workflow / list_workflows / get_step / prune_step / solidify ...
+      （见 tools.py）
     """
 
     def __init__(
@@ -75,6 +83,7 @@ class WorkflowManager(ReviewToolsMixin):
 
         if checkpointer is None:
             from langgraph.checkpoint.memory import MemorySaver
+
             checkpointer = MemorySaver()
         self.checkpointer = checkpointer
 
@@ -143,7 +152,10 @@ class WorkflowManager(ReviewToolsMixin):
                 timestamp=step.get("timestamp", ""),
             )
 
-        print(f"  [EXTRACT] {workflow_id} | {len(steps)} steps from thread {thread_id[:12]}...")
+        print(
+            f"  [EXTRACT] {workflow_id} | {len(steps)} steps from thread "
+            f"{thread_id[:12]}..."
+        )
         return workflow_id
 
     def _get_thread_messages(self, thread_id: str) -> list:
@@ -170,7 +182,9 @@ class WorkflowManager(ReviewToolsMixin):
                     tool_name = tc.get("name", "")
                     args = tc.get("args", {})
 
-                    step_type = "bashcall" if tool_name in ("bash", "terminal") else "toolcall"
+                    step_type = (
+                        "bashcall" if tool_name in ("bash", "terminal") else "toolcall"
+                    )
                     now = datetime.datetime.now().isoformat()
 
                     step = {

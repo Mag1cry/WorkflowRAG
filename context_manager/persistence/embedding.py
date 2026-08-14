@@ -21,7 +21,9 @@ class M3EEmbedding:
 
         print(f"[Embedding] 加载 M3E → {self._device} ...")
         self.tokenizer = AutoTokenizer.from_pretrained(self.settings.model_path)
-        self.model = AutoModel.from_pretrained(self.settings.model_path).to(self._device)
+        self.model = AutoModel.from_pretrained(self.settings.model_path).to(
+            self._device
+        )
         self.model.eval()
 
     def _resolve_device(self) -> str:

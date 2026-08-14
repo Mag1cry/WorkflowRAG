@@ -59,7 +59,10 @@ def cmd_review(args) -> None:
 
 def cmd_case(args) -> None:
     """运行内置案例，展示剪枝效果。"""
-    from context_manager.workflow.visualizer import build_case_study, visualize_comparison
+    from context_manager.workflow.visualizer import (
+        build_case_study,
+        visualize_comparison,
+    )
 
     raw, solidified = build_case_study()
     print()
@@ -87,13 +90,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="WorkflowManager CLI — AI Workflow 管理引擎",
     )
-    parser.add_argument("--list-tools", action="store_true",
-                        help="输出所有审查 LLM 工具的 function call schema（JSON）")
+    parser.add_argument(
+        "--list-tools",
+        action="store_true",
+        help="输出所有审查 LLM 工具的 function call schema（JSON）",
+    )
     subparsers = parser.add_subparsers(dest="command", help="子命令")
 
     demo_parser = subparsers.add_parser("demo", help="完整样例（真实 LLM 闭环）")
-    demo_parser.add_argument("--offline", action="store_true",
-                             help="离线演示（假数据，无需 API key）")
+    demo_parser.add_argument(
+        "--offline", action="store_true", help="离线演示（假数据，无需 API key）"
+    )
 
     subparsers.add_parser("case", help="运行剪枝效果案例")
 
@@ -104,8 +111,10 @@ def main() -> None:
 
     if args.list_tools:
         from context_manager import create_memory_manager
+
         wfm = create_memory_manager()
         import json
+
         print(json.dumps(wfm.get_tool_schemas(), indent=2, ensure_ascii=False))
         wfm.close()
         return

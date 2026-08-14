@@ -38,8 +38,9 @@ SANDBOX_ROOT = Path(__file__).resolve().parent / "tmp" / "sandboxes"
 # ── 单次执行 ──────────────────────────────────────────
 
 
-def run_once(task_key: str, thread_id: str,
-             system_extra: str = "", max_steps: int = 50) -> dict:
+def run_once(
+    task_key: str, thread_id: str, system_extra: str = "", max_steps: int = 50
+) -> dict:
     """初始化 sandbox 并运行 agent 一次，返回统计 + verify 结果。
 
     sandbox 固定放在 eval/tmp/sandboxes/ 下（workspace 内，避免临时目录权限问题）。
@@ -55,16 +56,23 @@ def run_once(task_key: str, thread_id: str,
     elapsed = time.time() - t0
 
     passed, detail = spec["verify"](sandbox)
-    stats.update({"passed": passed, "verify_detail": detail,
-                  "elapsed_s": round(elapsed, 1), "sandbox": str(sandbox)})
+    stats.update(
+        {
+            "passed": passed,
+            "verify_detail": detail,
+            "elapsed_s": round(elapsed, 1),
+            "sandbox": str(sandbox),
+        }
+    )
     return stats, checkpointer
 
 
 # ── Workflow 提取与注入 ───────────────────────────────
 
 
-def build_injection(task_key: str, checkpointer, db_path: Path,
-                    embedding: M3EEmbedding, judge_llm) -> tuple[str | None, dict | None]:
+def build_injection(
+    task_key: str, checkpointer, db_path: Path, embedding: M3EEmbedding, judge_llm
+) -> tuple[str | None, dict | None]:
     """从 run 的 checkpointer 提取 → LLM 剪枝 → 固化 → 检索 → 生成注入文本。
 
     Returns:
@@ -72,7 +80,9 @@ def build_injection(task_key: str, checkpointer, db_path: Path,
     """
     spec = TASKS_REGISTRY[task_key]
     settings = Settings(storage_path=str(db_path))
-    wfm = WorkflowManager(settings=settings, checkpointer=checkpointer, embedding=embedding)
+    wfm = WorkflowManager(
+        settings=settings, checkpointer=checkpointer, embedding=embedding
+    )
     judge_stats = None
     try:
         wf_id = wfm.extract_workflow("thread_1", name=task_key)
@@ -80,11 +90,14 @@ def build_injection(task_key: str, checkpointer, db_path: Path,
         raw_count = len(raw.steps) if raw else 0
 
         from context_manager.workflow.judge import WorkflowJudge
+
         judge = WorkflowJudge(wfm, judge_llm)
         judge_stats = judge.judge(wf_id)
-        print(f"  [LLM剪枝] {wf_id} | {len(judge_stats['tool_calls'])} 次工具调用 | "
-              f"{judge_stats['total_tokens']} tokens | {judge_stats['rounds']} 轮 | "
-              f"done={judge_stats['done']}")
+        print(
+            f"  [LLM剪枝] {wf_id} | {len(judge_stats['tool_calls'])} 次工具调用 | "
+            f"{judge_stats['total_tokens']} tokens | {judge_stats['rounds']} 轮 | "
+            f"done={judge_stats['done']}"
+        )
 
         wfm.solidify(wf_id)
         wf = wfm.get_workflow(wf_id)
@@ -92,12 +105,14 @@ def build_injection(task_key: str, checkpointer, db_path: Path,
 
         results = wfm.retrieve(spec["prompt"], top_k=1)
         if not results:
-            print(f"  [注入] 检索无结果，跳过注入")
+            print("  [注入] 检索无结果，跳过注入")
             return None, judge_stats
         top = results[0]
         injection = format_context_compact(top)
-        print(f"  [注入] {wf_id} | RAW {raw_count} → SOLIDIFIED {kept_count} "
-              f"(LLM剪枝) | 注入 {len(injection)} chars")
+        print(
+            f"  [注入] {wf_id} | RAW {raw_count} → SOLIDIFIED {kept_count} "
+            f"(LLM剪枝) | 注入 {len(injection)} chars"
+        )
         return injection, judge_stats
     finally:
         wfm.close()
@@ -107,15 +122,16 @@ def build_injection(task_key: str, checkpointer, db_path: Path,
 
 
 def run_mode(task_key: str, mode: str, runs: int, db_dir: Path) -> dict:
-    spec = TASKS_REGISTRY[task_key]
     results: dict = {"task": task_key, "mode": mode, "runs": []}
     embedding = None
 
     if mode == "baseline":
         for i in range(1, runs + 1):
             stats, _cp = run_once(task_key, f"thread_{i}")
-            print(f"  [baseline] run {i}/{runs} | calls={stats['tool_call_count']} "
-                  f"tokens={stats['total_tokens']} passed={stats['passed']}")
+            print(
+                f"  [baseline] run {i}/{runs} | calls={stats['tool_call_count']} "
+                f"tokens={stats['total_tokens']} passed={stats['passed']}"
+            )
             results["runs"].append(stats)
     else:  # inject（固定 LLM 剪枝）
         db_path = db_dir / f"{task_key}_inject.db"
@@ -123,27 +139,37 @@ def run_mode(task_key: str, mode: str, runs: int, db_dir: Path) -> dict:
             db_path.unlink()
         # run 1: 无注入，产出 workflow
         stats1, cp1 = run_once(task_key, "thread_1")
-        print(f"  [inject] run 1 (raw) | calls={stats1['tool_call_count']} "
-              f"tokens={stats1['total_tokens']} passed={stats1['passed']}")
+        print(
+            f"  [inject] run 1 (raw) | calls={stats1['tool_call_count']} "
+            f"tokens={stats1['total_tokens']} passed={stats1['passed']}"
+        )
         results["runs"].append({**stats1, "phase": "raw"})
 
         embedding = M3EEmbedding()
         from langchain_openai import ChatOpenAI
+
         judge_llm = ChatOpenAI(
             model=os.environ.get("DEEPSEEK_JUDGE_MODEL", "deepseek-chat"),
-            api_key=_resolve_api_key(), base_url="https://api.deepseek.com",
-            temperature=0, max_retries=2, timeout=120,
+            api_key=_resolve_api_key(),
+            base_url="https://api.deepseek.com",
+            temperature=0,
+            max_retries=2,
+            timeout=120,
         )
-        injection, judge_stats = build_injection(task_key, cp1, db_path, embedding, judge_llm)
+        injection, judge_stats = build_injection(
+            task_key, cp1, db_path, embedding, judge_llm
+        )
         results["injection"] = injection
         results["judge"] = judge_stats
 
         # run 2..N: 注入后执行
         for i in range(2, runs + 1):
-            stats, _cp = run_once(task_key, f"thread_{i}",
-                                  system_extra=injection or "")
-            print(f"  [inject] run {i}/{runs} (injected) | calls={stats['tool_call_count']} "
-                  f"tokens={stats['total_tokens']} passed={stats['passed']}")
+            stats, _cp = run_once(task_key, f"thread_{i}", system_extra=injection or "")
+            print(
+                f"  [inject] run {i}/{runs} (injected) | "
+                f"calls={stats['tool_call_count']} "
+                f"tokens={stats['total_tokens']} passed={stats['passed']}"
+            )
             results["runs"].append({**stats, "phase": "injected"})
 
     if embedding is not None:
@@ -177,11 +203,22 @@ def summarize(results: dict) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Workflow 省 Token 端到端评测（LLM 剪枝）")
+    parser = argparse.ArgumentParser(
+        description="Workflow 省 Token 端到端评测（LLM 剪枝）"
+    )
     parser.add_argument("--task", choices=list(TASKS) + ["all"], default="T1")
-    parser.add_argument("--mode", choices=["baseline", "inject", "both"], default="both")
-    parser.add_argument("--runs", type=int, default=3, help="每个模式的有效 run 数（inject 模式额外 +1 次 raw run）")
-    parser.add_argument("--db-dir", default=str(Path(__file__).resolve().parent / "tmp"))
+    parser.add_argument(
+        "--mode", choices=["baseline", "inject", "both"], default="both"
+    )
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=3,
+        help="每个模式的有效 run 数（inject 模式额外 +1 次 raw run）",
+    )
+    parser.add_argument(
+        "--db-dir", default=str(Path(__file__).resolve().parent / "tmp")
+    )
     args = parser.parse_args()
 
     if not _resolve_api_key():
@@ -201,7 +238,9 @@ def main() -> None:
             print(f"\n=== {task_key} [{mode}] runs={args.runs} ===")
             results = run_mode(task_key, mode, args.runs, db_dir)
             out = RESULTS_DIR / f"{task_key}_{mode}.json"
-            out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+            out.write_text(
+                json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
             s = summarize(results)
             s["mode_tag"] = mode
             summary_rows.append({"task": task_key, "mode": mode, **s})
@@ -209,14 +248,20 @@ def main() -> None:
 
     # 对比表
     print("\n" + "=" * 100)
-    print(f"{'任务':<5}{'模式':<10}{'run数':<6}{'调用数':<8}{'总token':<12}"
-          f"{'prompt':<12}{'completion':<12}{'步骤':<6}{'成功率':<9}{'耗时s':<8}")
+    print(
+        f"{'任务':<5}{'模式':<10}{'run数':<6}{'调用数':<8}{'总token':<12}"
+        f"{'prompt':<12}{'completion':<12}{'步骤':<6}{'成功率':<9}{'耗时s':<8}"
+    )
     print("-" * 100)
     for r in summary_rows:
-        print(f"{r['task']:<5}{r['mode']:<10}{r.get('runs_used', 0):<6}"
-              f"{r.get('avg_tool_calls', '-'):<8}{r.get('avg_total_tokens', '-'):<12}"
-              f"{r.get('avg_prompt_tokens', '-'):<12}{r.get('avg_completion_tokens', '-'):<12}"
-              f"{r.get('avg_steps', '-'):<6}{r.get('success_rate', '-'):<9}{r.get('avg_elapsed_s', '-'):<8}")
+        print(
+            f"{r['task']:<5}{r['mode']:<10}{r.get('runs_used', 0):<6}"
+            f"{r.get('avg_tool_calls', '-'):<8}{r.get('avg_total_tokens', '-'):<12}"
+            f"{r.get('avg_prompt_tokens', '-'):<12}"
+            f"{r.get('avg_completion_tokens', '-'):<12}"
+            f"{r.get('avg_steps', '-'):<6}{r.get('success_rate', '-'):<9}"
+            f"{r.get('avg_elapsed_s', '-'):<8}"
+        )
     print("=" * 100)
     print(f"结果文件已保存到 {RESULTS_DIR}")
 

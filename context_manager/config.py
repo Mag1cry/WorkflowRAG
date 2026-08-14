@@ -14,7 +14,7 @@ class Settings:
 
     # ── 模型 ──
     model_path: str = "C:/003Codes/models/m3e-base"
-    device: str = ""                     # 空 = 自动检测 CUDA/CPU
+    device: str = ""  # 空 = 自动检测 CUDA/CPU
     max_length: int = 512
 
     # ── 存储 ──

@@ -21,4 +21,11 @@ from .models import Workflow, Step
 from .workflow import WorkflowManager, WorkflowJudge, create_memory_manager
 
 __version__ = "0.7.0"
-__all__ = ["WorkflowManager", "WorkflowJudge", "Workflow", "Step", "Settings", "create_memory_manager"]
+__all__ = [
+    "WorkflowManager",
+    "WorkflowJudge",
+    "Workflow",
+    "Step",
+    "Settings",
+    "create_memory_manager",
+]

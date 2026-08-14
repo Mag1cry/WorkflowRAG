@@ -35,8 +35,10 @@ def _resolve_api_key() -> str | None:
         import winreg
 
         for hive, sub in (
-            (winreg.HKEY_LOCAL_MACHINE,
-             r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+            (
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            ),
             (winreg.HKEY_CURRENT_USER, r"Environment"),
         ):
             try:
@@ -90,7 +92,9 @@ def make_tools(sandbox: str) -> list:
 
     @tool
     def bash(command: str) -> str:
-        """在 sandbox 目录内执行 shell 命令（Windows cmd）。返回 stdout/stderr 与退出码。
+        """在 sandbox 目录内执行 shell 命令（Windows cmd）。
+
+        返回 stdout/stderr 与退出码。
 
         参数必须是单条命令；禁止访问 sandbox 目录之外的路径。
         python 解析为评测环境（agent conda env）的解释器。
@@ -109,12 +113,19 @@ def make_tools(sandbox: str) -> list:
         out_file = sb / f"__cm_out_{os.getpid()}.tmp"
         err_file = sb / f"__cm_err_{os.getpid()}.tmp"
         try:
-            with open(out_file, "w", encoding="utf-8", errors="replace") as fo, \
-                 open(err_file, "w", encoding="utf-8", errors="replace") as fe:
+            with (
+                open(out_file, "w", encoding="utf-8", errors="replace") as fo,
+                open(err_file, "w", encoding="utf-8", errors="replace") as fe,
+            ):
                 try:
                     r = subprocess.run(
-                        command, shell=True, cwd=str(sb), stdout=fo, stderr=fe,
-                        timeout=180, env=env,
+                        command,
+                        shell=True,
+                        cwd=str(sb),
+                        stdout=fo,
+                        stderr=fe,
+                        timeout=180,
+                        env=env,
                     )
                     code = r.returncode
                 except subprocess.TimeoutExpired:
@@ -186,13 +197,16 @@ def build_agent(sandbox: str, system_extra: str = ""):
         "1. 只能操作 sandbox 目录内的文件，禁止访问其他路径\n"
         "2. 用 bash 执行 python/pytest 等命令验证结果\n"
         "3. 环境是 Windows：命令在 cmd 兼容 shell 中执行，python 命令可直接使用；"
-        "文件浏览请优先使用 list_dir/read_file 工具，避免使用 ls/cat/chmod 等 Linux 命令\n"
-        "4. 任务完成后，用最终回答简要说明你做了什么、结果如何\n"
-        + (system_extra or "")
+        "文件浏览请优先使用 list_dir/read_file 工具，"
+        "避免使用 ls/cat/chmod 等 Linux 命令\n"
+        "4. 任务完成后，用最终回答简要说明你做了什么、结果如何\n" + (system_extra or "")
     )
     checkpointer = MemorySaver()
     agent = create_react_agent(
-        model, tools, prompt=prompt, checkpointer=checkpointer,
+        model,
+        tools,
+        prompt=prompt,
+        checkpointer=checkpointer,
     )
     return agent, checkpointer
 
@@ -205,7 +219,7 @@ def run_and_stats(agent, thread_id: str, task_prompt: str, max_steps: int = 50) 
 
     Returns:
         {
-            "tool_calls": [...],           # 每次工具调用的 (name, args) 
+            "tool_calls": [...],           # 每次工具调用的 (name, args)
             "tool_call_count": int,
             "prompt_tokens": int,          # 累计
             "completion_tokens": int,
@@ -273,9 +287,11 @@ def main() -> None:
     task_prompt = sys.argv[2]
     agent, _cp = build_agent(sandbox)
     stats = run_and_stats(agent, "cli_thread", task_prompt)
-    print(f"\n=== 工具调用 {stats['tool_call_count']} 次 / "
-          f"token {stats['total_tokens']} (prompt {stats['prompt_tokens']} + "
-          f"completion {stats['completion_tokens']}) / {stats['steps']} 轮 ===")
+    print(
+        f"\n=== 工具调用 {stats['tool_call_count']} 次 / "
+        f"token {stats['total_tokens']} (prompt {stats['prompt_tokens']} + "
+        f"completion {stats['completion_tokens']}) / {stats['steps']} 轮 ==="
+    )
     for tc in stats["tool_calls"]:
         args = str(tc["args"])[:80]
         print(f"  → {tc['name']}({args}...)")
