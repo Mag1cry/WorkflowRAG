@@ -35,9 +35,25 @@ pip install -e .          # 或 pip install -r 依赖（见 pyproject.toml）
 ## 快速开始
 
 ```bash
-python cli.py demo                  # 离线演示：提取 → 工具剪枝 → 固化 → 检索 → 注入
+python cli.py demo                  # ★ 完整样例：真实 Agent 任务 → 提取 → LLM 剪枝
+                                    #   → 固化 → 检索 → 注入复用 → 对比省 token
+                                    #   （需要 DEEPSEEK_API_KEY）
+python cli.py demo --offline        # 离线演示（假数据，无需 API key）
+python demo.py                      # 等价于 cli.py demo（完整样例可直接运行）
 python cli.py review <thread_id>    # 一键审查：提取 → 展示 → 固化
+python cli.py case                  # 内置案例：剪枝效果对比
 python cli.py --list-tools          # 输出审查 LLM 的 function call schema
+```
+
+完整样例输出预览（`python cli.py demo`）：
+
+```
+1. 第一次执行 — Agent 无参考完成任务     → 9 次调用 / 8992 tokens
+2. 提取 RAW Workflow（9 步，含探索噪音）
+3. WorkflowJudge LLM 剪枝              → 剪 3 步（探索导航 + 失败验证）+ 审查报告
+4. 固化 + 检索命中
+5. 注入剪枝后工作流 → 第二次执行        → 8 次调用
+6. 对比总结：调用/token/成功率 + 剪枝成本回本分析
 ```
 
 ## 核心概念
