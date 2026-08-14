@@ -55,7 +55,25 @@ flowchart TB
 
 ```bash
 pip install -e .
-python cli.py demo
+python cli.py demo                  # ★ Full end-to-end demo: real agent task → extract
+                                    #   → LLM pruning → solidify → retrieve → inject reuse
+                                    #   → compare token savings (needs DEEPSEEK_API_KEY)
+python cli.py demo --offline        # Offline demo with fake data (no API key needed)
+python demo.py                      # Same as `cli.py demo` (run the sample directly)
+python cli.py review <thread_id>    # One-shot review: extract → show → solidify
+python cli.py case                  # Built-in case: pruning effect comparison
+python cli.py --list-tools          # Print function-call schemas for the review LLM
+```
+
+Full demo output preview (`python cli.py demo`):
+
+```
+1. First run — agent completes a task without reference  → 9 calls / 8992 tokens
+2. Extract RAW workflow (9 steps incl. exploration noise)
+3. WorkflowJudge LLM pruning → 3 steps pruned (navigation + failed verify) + review report
+4. Solidify + retrieval hit
+5. Inject pruned workflow → second run                      → 8 calls
+6. Comparison: calls/tokens/success + pruning-cost payback analysis
 ```
 
 **Dependencies**: `torch` `transformers` `faiss-cpu` `scikit-learn` `numpy` `langgraph` `langchain-core`
@@ -68,23 +86,32 @@ python cli.py demo
 
 ```python
 from context_manager import WorkflowManager
+from context_manager.workflow.judge import WorkflowJudge
 
 wfm = WorkflowManager()
 
 # 1. Extract workflow from a completed LangGraph thread
 wf_id = wfm.extract_workflow("some_thread_id")
 
-# 2. Solidify (prune + index)
+# 2. LLM pruning — review agent operates steps via function-call tools
+judge = WorkflowJudge(wfm, llm)          # llm: function-calling ChatOpenAI
+result = judge.judge(wf_id)              # returns stats + review report
+
+# 3. Solidify (description → vector index → SOLIDIFIED)
 wfm.solidify(wf_id)
 
-# 3. Retrieve relevant workflows (returns complete step sequences)
+# 4. Retrieve relevant workflows (pruned steps filtered out)
 results = wfm.retrieve("how to fix import error", top_k=3)
-# → [{"workflow_id", "name", "description", "similarity", "steps": [...]}]
 
-# 4. Management
-wfm.list_workflows()
+# 5. Compact context injection (token-efficient)
+from context_manager.workflow.injector import format_context_compact
+context = format_context_compact(results[0])
+
+# 6. Review tools (used by the LLM via function calls)
 wfm.get_workflow(wf_id)
-wfm.delete_workflow(wf_id)
+wfm.list_workflows()
+wfm.prune_step("step_id", True)
+wfm.update_workflow_description(wf_id, "new desc")
 
 wfm.close()
 ```
@@ -130,14 +157,15 @@ Step = {
 
 ## LLM Pruning (WorkflowJudge)
 
-Pruning is done by an LLM review agent (`workflow/judge.py`) that operates the workflow **only through function-call tools** (preventing hallucinated edits):
+Pruning is done by an LLM review agent (`workflow/judge.py`) that operates the workflow **only through function-call tools** (preventing hallucinated edits). The tool set (17 tools) is defined once in `workflow/tools.py` (`ReviewToolsMixin`) and auto-generated as OpenAI-compatible schemas via `get_tool_schemas()`:
 
 | Category | Tools |
 | ---------- | ------- |
-| View | `review_summary` `list_steps` `get_steps` `get_step` `visualize` |
+| View | `get_workflow` `list_workflows` `get_step` `list_steps` `get_steps` `visualize` |
 | Edit | `prune_step` `batch_prune` `update_step` `add_step` `remove_step` `reorder_steps` |
-| Metadata | `update_workflow_description` |
-| Finish | `judge_done(report)` |
+| Metadata | `update_workflow_name` `update_workflow_description` |
+| Lifecycle | `solidify` `delete_workflow` `review_summary` |
+| Finish | `judge_done(report)` (WorkflowJudge built-in) |
 
 Review criteria: exploratory calls (incl. inside `bash` args), failed-and-bypassed steps, overwritten results, repeated verifications are pruned; effective writes and successful verifications are kept.
 
@@ -147,7 +175,8 @@ Review criteria: exploratory calls (incl. inside `bash` args), failed-and-bypass
 
 ```bash
 013ContextManager/
-├── cli.py                         # CLI entry point
+├── cli.py                         # CLI entry point (demo / review / case / list-tools)
+├── demo.py                        # ★ Full end-to-end sample (real LLM / --offline)
 ├── context_manager/
 │   ├── __init__.py                # Exports WorkflowManager, WorkflowJudge
 │   ├── config.py                  # Settings dataclass
@@ -169,6 +198,19 @@ Review criteria: exploratory calls (incl. inside `bash` args), failed-and-bypass
 │   └── report.py                  # Results → Markdown report
 └── pyproject.toml                 # Packaging & dependencies
 ```
+
+---
+
+## Evaluation (eval/)
+
+Real end-to-end benchmark (deepseek-chat + LangGraph ReAct + 4 tasks) measuring token savings:
+
+```bash
+python eval/runner.py --task all --mode both --runs 3   # baseline vs LLM-pruned injection
+python eval/report.py                                    # generate Markdown report
+```
+
+Conclusion ([docs/EvalReport.md](./EvalReport.md)): reuse yields **-48% tokens / -52% calls** on fixed-procedure tasks (e.g. venv setup), little gain on trivial tasks; LLM pruning beats rule-based pruning (13.5k vs 16.7k tokens on the same task) but costs ~15-18k tokens once per task, paid back after ~4 reuses.
 
 ---
 
