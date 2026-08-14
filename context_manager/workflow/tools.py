@@ -17,9 +17,11 @@
 from __future__ import annotations
 
 import inspect
+import typing
 from typing import Any, get_origin, get_args
 
 from ..models import Workflow
+from ..persistence import M3EEmbedding, WorkflowIndexBase, WorkflowStoreBase
 
 # 工具方法白名单（get_tool_schemas 的输出顺序）
 TOOL_METHODS: tuple[str, ...] = (
@@ -71,7 +73,15 @@ class ReviewToolsMixin:
     """Workflow 审查工具（供 LLM 通过 function call 调用）。
 
     依赖宿主（WorkflowManager）提供的属性: workflow_store / embedding / index。
+    以下为宿主注入的属性声明（类型检查用，运行时由 WorkflowManager.__init__ 赋值）：
     """
+
+    # ── 宿主注入属性（声明，不赋值）────────────────────
+    workflow_store: WorkflowStoreBase
+    embedding: M3EEmbedding
+    index: WorkflowIndexBase
+    settings: Any
+    checkpointer: Any
 
     # ── 查看 ──────────────────────────────────────────
 
@@ -300,12 +310,20 @@ class ReviewToolsMixin:
             doc = inspect.getdoc(fn) or ""
             description = doc.split("\n\n")[0].strip().replace("\n", " ") if doc else name
 
+            # `from __future__ import annotations` 下注解是字符串，
+            # 用 get_type_hints 解析为真实类型再做 schema 推断
+            try:
+                hints = typing.get_type_hints(fn)
+            except Exception:
+                hints = {}
+
             properties: dict[str, Any] = {}
             required: list[str] = []
             for pname, param in inspect.signature(fn).parameters.items():
                 if pname == "self":
                     continue
-                schema = _type_schema(param.annotation, param.default)
+                annotation = hints.get(pname, param.annotation)
+                schema = _type_schema(annotation, param.default)
                 if param.default is inspect.Parameter.empty:
                     required.append(pname)
                 properties[pname] = schema
